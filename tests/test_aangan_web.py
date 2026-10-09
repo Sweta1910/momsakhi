@@ -1407,7 +1407,7 @@ class TestHelplines(unittest.TestCase):
         }
         
         const htmlIN = boot('Pune', null);
-        if (!htmlIN.includes('14416') || htmlIN.includes('988')) {
+        if (!htmlIN.includes('14416') || !htmlIN.includes('112') || htmlIN.includes('988')) {
             console.error('India rendering failed'); process.exit(1);
         }
         
@@ -1417,7 +1417,7 @@ class TestHelplines(unittest.TestCase):
         }
         
         const htmlUK = boot('London, UK', null);
-        if (!htmlUK.includes('111') || !htmlUK.includes('116 123')) {
+        if (!htmlUK.includes('111') || !htmlUK.includes('116 123') || !htmlUK.includes('999')) {
             console.error('UK rendering failed'); process.exit(1);
         }
         

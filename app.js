@@ -944,20 +944,20 @@
   };
 
 
-    // Helplines re-verified 2026-10-09 against official pages:
-  // - India: Tele-MANAS 14416 / 1-800-891-4416 (mohfw.gov.in), KIRAN 1800-599-0019.
-  // - USA: 988 (988lifeline.org), NMMHH 1-833-TLC-MAMA, PSI 1-800-944-4773.
-  // - UK: NHS 111, Samaritans 116 123, PANDAS UK 0808 1961 776.
-  // - Canada: 988, PSI text line.
-  // - Australia: PANDA 1300 726 306, Lifeline 13 11 14.
-  // - UAE: Estijaba 800-1717.
-  // - Singapore: SOS 1-767, IMH 6389-2222.
-  // - Germany: TelefonSeelsorge 0800 111 0 111.
-  // - New Zealand: 1737, PlunketLine 0800 933 922.
+    // Helplines verified 2026-10-09 against official pages:
+  // - India: Tele-MANAS 14416 / 1-800-891-4416 (telemanas.mohfw.gov.in), KIRAN 1800-599-0019 (disabilityaffairs.gov.in).
+  // - USA: 988 (988lifeline.org), NMMHH 1-833-852-6262 (mchb.hrsa.gov), PSI 1-800-944-4773 (postpartum.net).
+  // - UK: NHS 111 (nhs.uk), Samaritans 116 123 (samaritans.org), PANDAS UK 0808 1961 776 (pandasfoundation.org.uk).
+  // - Canada: 988 (988.ca), PSI text line (postpartum.net).
+  // - Australia: PANDA 1300 726 306 (panda.org.au), Lifeline 13 11 14 (lifeline.org.au).
+  // - UAE: Estijaba 800-1717 (doh.gov.ae).
+  // - Singapore: SOS 1-767 (sos.org.sg), IMH 6389-2222 (imh.com.sg).
+  // - Germany: TelefonSeelsorge 0800 111 0 111 (telefonseelsorge.de).
+  // - New Zealand: 1737 (1737.org.nz), PlunketLine 0800 933 922 (plunket.org.nz).
   V.safety = function () {
     var ccode = store.safetyCountry || deriveCountry(store.city || (store.profile && store.profile.city));
     var pickHtml = '<div style="margin:16px 0;text-align:center"><label for="safety-country-select" style="font-size:14px" class="muted">Showing helplines for: </label><select id="safety-country-select" style="font-size:14px;background:none;border:none;border-bottom:1px solid var(--ink-4);color:var(--ink-1);font-weight:600;padding:2px;cursor:pointer">';
-    var fall = '<option value="">Other / Unknown</option>';
+    var fall = '<option value=""' + (!HELPLINES[ccode] ? ' selected' : '') + '>Other / Unknown</option>';
     for (var k in HELPLINES) {
       pickHtml += '<option value="' + k + '"' + (ccode === k ? ' selected' : '') + '>' + esc(HELPLINES[k].name) + '</option>';
     }
