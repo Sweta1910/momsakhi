@@ -398,11 +398,77 @@
   // ---------------------------------------------------------------- views
   var V = {};
 
+  // ------------------------------------------- in-app browser (webview) card
+  // Google refuses OAuth inside embedded webviews (403 disallowed_useragent), so
+  // a mom who taps the link inside Instagram/Facebook/etc. could never sign in.
+  // We warn ONLY on browsers with a reliable UA marker. WhatsApp's in-app
+  // browser has no reliable marker, so it is deliberately NOT matched (a false
+  // warning there would scare off the moms we invite by WhatsApp). Generic
+  // Android WebView ("; wv)") is matched: Google blocks it too.
+  // The same card also appears after a sign-in error that means "webview"
+  // (signInBlocked), which covers in-app browsers we can't recognise.
+  var IAB_RE = /FBAN|FBAV|FB_IAB|Instagram|LinkedInApp|Snapchat|musical_ly|TikTok|BytedanceWebview|Line\/|; wv\)/;
+  var signInBlocked = false;
+  function inAppBrowser(ua) {
+    ua = ua || "";
+    if (!IAB_RE.test(ua)) return null;
+    var name = /Instagram/.test(ua) ? "Instagram"
+      : /Messenger|MESSENGER/.test(ua) ? "Messenger"
+      : /FBAN|FBAV|FB_IAB/.test(ua) ? "Facebook"
+      : /LinkedInApp/.test(ua) ? "LinkedIn"
+      : /Snapchat/.test(ua) ? "Snapchat"
+      : /musical_ly|TikTok|BytedanceWebview/.test(ua) ? "TikTok"
+      : /Line\//.test(ua) ? "LINE" : "";
+    return { name: name, os: /Android/.test(ua) ? "android" : isIOS(ua) ? "ios" : "other" };
+  }
+  function isWebviewAuthError(e) {
+    var code = (e && e.code) || "", msg = (e && e.message) || "";
+    return ["auth/disallowed-useragent", "auth/web-storage-unsupported",
+            "auth/operation-not-supported-in-this-environment"].indexOf(code) >= 0 ||
+      /disallowed.useragent/i.test(msg);
+  }
+  // The page's own address (no #route), built from location so it is never
+  // hardcoded: https://sweta1910.github.io/momsakhi/ on Pages, localhost locally.
+  function appLink(loc) {
+    return (loc.origin || (loc.protocol + "//" + loc.host)) + loc.pathname;
+  }
+  // Android: hand the page to Chrome. e.g.
+  // intent://sweta1910.github.io/momsakhi/#Intent;scheme=https;package=com.android.chrome;end
+  function chromeIntentUrl(loc) {
+    return "intent://" + loc.host + loc.pathname + (loc.search || "") +
+      "#Intent;scheme=" + String(loc.protocol || "https:").replace(":", "") + ";package=com.android.chrome;end";
+  }
+  function inAppCard() {
+    var ua = nav().userAgent || "";
+    var iab = inAppBrowser(ua);
+    if (!iab && !signInBlocked) return "";
+    var os = iab ? iab.os : (/Android/.test(ua) ? "android" : isIOS(ua) ? "ios" : "other");
+    var where = iab && iab.name ? esc(iab.name) + "'s" : "this app's";
+    var loc = window.location, link = appLink(loc);
+    var step = os === "ios" ? "Tap <b>⋯</b> (top right), then <b>Open in Safari</b>."
+      : os === "android" ? "Tap <b>Open in Chrome</b> below, or <b>⋮</b> then <b>Open in browser</b>."
+      : "Copy the link and open it in Chrome or Safari.";
+    return '<div class="card iab-card" id="iab-card" role="alert">' +
+      "<b>To sign in, open " + esc(BRAND.name) + " in Chrome or Safari</b>" +
+      "<span>Google doesn't allow sign-in inside " + where + " built-in browser.</span>" +
+      '<span class="iab-step">' + step + "</span>" +
+      '<input class="input iab-link" id="iab-link" readonly value="' + esc(link) + '" aria-label="' + esc(BRAND.name) + ' link">' +
+      '<div class="iab-actions"><button class="btn btn-primary btn-sm" data-act="copy-app-link" id="iab-copy">Copy link</button>' +
+      (os === "android" ? '<a class="btn btn-ghost btn-sm" id="iab-chrome" href="' + esc(chromeIntentUrl(loc)) + '">Open in Chrome</a>' : "") +
+      "</div></div>";
+  }
+  function showSignInBlocked() {
+    signInBlocked = true;
+    if (parseHash().name !== "welcome") go("#welcome"); else render(true);
+    var card = $("#iab-card"); if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" });
+  }
+
   V.welcome = function () {
     return { tab: null, html:
       '<div class="welcome view">' +
       '<div class="toran" aria-hidden="true"></div>' + mandala() +
-      '<div class="welcome-hero">' +
+      // First thing on screen: a mom arriving from Instagram must see it without scrolling.
+      '<div class="welcome-hero">' + inAppCard() +
       '<div class="logo">' + logoMark() + '<span class="logo-word" style="font-size:28px">' + esc(BRAND.name) + "</span></div>" +
       "<h1>" + esc(BRAND.tagline).replace("sakhi", "<em>sakhi</em>") + "</h1>" +
       '<p class="sakhi-note"><b>Sakhi</b> (सखी) means a close friend — no judgement, just moms.</p>' +
@@ -524,7 +590,7 @@
   function installHintKind(ua) {
     if (isStandalone()) return null;
     if (installPrompt) return "prompt";
-    if (isIOS(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua) && !(window.AANGAN && window.AANGAN.inAppBrowser && window.AANGAN.inAppBrowser(ua))) return "ios";
+    if (isIOS(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua) && !inAppBrowser(ua)) return "ios";
     return null;
   }
   function installHint() {
@@ -1196,6 +1262,7 @@
       }).catch(function(e) {
          if (btn) btn.disabled = false;
          if (e && e.code === "auth/popup-closed-by-user") { toast("Sign-in cancelled"); return; }
+         if (isWebviewAuthError(e)) { console.warn("MomSakhi: sign-in blocked in this browser", e); showSignInBlocked(); return; }
          failToast("sign you in", btn)(e);
       });
       return;
@@ -1252,6 +1319,19 @@
       case "go": go(el.getAttribute("data-to")); break;
       case "back": if (history.length > 1) history.back(); else go(store.onboarded ? "#home" : "#welcome"); break;
       case "google-signin": signInWithGoogle(undefined, el); break;
+      case "copy-app-link": {
+        var appUrl = appLink(location);
+        var copied = function () { toast("Link copied ✓ Paste it in Chrome or Safari"); };
+        var selectCopy = function () {
+          var inp = $("#iab-link"), okCopy = false;
+          if (inp) { inp.focus(); inp.select(); try { inp.setSelectionRange(0, appUrl.length); } catch (err) { /* ignore */ } }
+          try { okCopy = document.execCommand("copy"); } catch (err) { /* ignore */ }
+          if (okCopy) copied(); else toast("Press and hold the link above to copy it");
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(appUrl).then(copied, selectCopy);
+        else selectCopy();
+        break;
+      }
       case "install-dismiss": installHintLive = false; var ih = $("#install-hint"); if (ih) ih.remove(); break;
       case "install-app": {
         var pr = installPrompt; installPrompt = null; installHintLive = false;
@@ -1821,6 +1901,7 @@
           window.Backend.getRedirectResult().then(function (result) {
             if (result && result.user) return afterGoogleSignIn(result.user);
           }).catch(function (e) {
+            if (isWebviewAuthError(e)) { showSignInBlocked(); return; }
             failToast("sign you in", null)(e);
           });
           window.Backend.onAuth(function(u) {
@@ -1856,5 +1937,7 @@
   // Exposed for tests/screenshot tooling only.
   window.AANGAN = { kindnessScan: kindnessScan, softenText: softenText, reset: function () { localStorage.removeItem(STORE_KEY); },
     syncModerator: syncModerator, V: V, isRealMode: isRealMode, cleanCity: cleanCity, saveCity: saveCity,
+    inAppBrowser: inAppBrowser, isWebviewAuthError: isWebviewAuthError, appLink: appLink, chromeIntentUrl: chromeIntentUrl,
+    showSignInBlocked: showSignInBlocked,
     city: function () { return store.city; } };
 })();

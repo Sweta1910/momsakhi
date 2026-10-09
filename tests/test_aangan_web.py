@@ -1218,5 +1218,117 @@ console.log('OK');
         self.assertIn("OK", r.stdout)
 
 
+class TestInAppBrowserWarning(unittest.TestCase):
+    """2026-10-09: Google blocks OAuth in embedded webviews (403
+    disallowed_useragent). On Instagram/Facebook/Messenger/LinkedIn/Snapchat/
+    TikTok/LINE in-app browsers and generic Android WebView the welcome screen
+    shows "To sign in, open MomSakhi in Chrome or Safari" with Copy link (and
+    Open in Chrome on Android). Real browsers and WhatsApp (no reliable UA
+    marker) must NOT be warned. A webview-type sign-in error shows the same card."""
+
+    def _run(self, body):
+        node = _node()
+        if not node:
+            self.skipTest("node not installed")
+        harness = r"""
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const webDir = %r;
+const dataJs = fs.readFileSync(path.join(webDir, 'data.js'), 'utf8');
+const appJs = fs.readFileSync(path.join(webDir, 'app.js'), 'utf8');
+function ok(c, msg) { if (!c) throw new Error(msg); }
+const LOC = { hash: '#welcome', search: '', hostname: 'sweta1910.github.io', host: 'sweta1910.github.io',
+  protocol: 'https:', origin: 'https://sweta1910.github.io', pathname: '/momsakhi/' };
+function boot(ua) {
+  const ls = { store: {}, getItem(k) { return this.store[k] || null; }, setItem(k, v) { this.store[k] = v; }, removeItem(k) { delete this.store[k]; } };
+  const w = { location: Object.assign({}, LOC), localStorage: ls, navigator: { userAgent: ua },
+    document: { addEventListener() {}, querySelector() { return null; }, getElementById() { return null; }, body: { setAttribute() {} } },
+    Backend: { isReal: true, user: null, posts: [] }, console: console, setTimeout: setTimeout, clearTimeout: clearTimeout };
+  w.window = w;
+  vm.runInContext(dataJs, vm.createContext(w)); vm.runInContext(appJs, w);
+  return w.AANGAN;
+}
+const UA = {
+  instagramIOS: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 339.0.3.12.91 (iPhone15,2; iOS 17_5; en_IN; en; scale=3.00; 1179x2556; 619476133)',
+  fbAndroid: 'Mozilla/5.0 (Linux; Android 14; SM-S918B Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0.6668.81 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/484.0.0.53.105;]',
+  fbIOS: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/FBIOS;FBAV/484.0.0.39.109;FBBV/650000000;FBDV/iPhone15,2;FBMD/iPhone;FBSN/iOS;FBSV/17.5;FBSS/3;FBCR/;FBID/phone;FBLC/en_US;FBOP/5]',
+  linkedin: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [LinkedInApp]/9.30.1',
+  snapchat: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Snapchat/13.10.0.41 (like Safari/8618.2.12.10.3, panda)',
+  tiktok: 'Mozilla/5.0 (Linux; Android 13; Pixel 7 Build/TQ3A.230901.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/116.0.0.0 Mobile Safari/537.36 trill_310503 BytedanceWebview/d8a21c6 musical_ly_2023105030 JsSdk/1.0',
+  androidWebView: 'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0.6668.81 Mobile Safari/537.36',
+  androidChrome: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.81 Mobile Safari/537.36',
+  iosSafari: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+  iosChrome: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/129.0.6668.69 Mobile/15E148 Safari/604.1',
+  desktopChrome: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+  whatsappLike: 'Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.81 Mobile Safari/537.36',
+  whatsappIOS: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+};
+%s
+console.log('OK');
+"""
+        r = subprocess.run([node, "-e", harness % (WEB_DIR, body)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("OK", r.stdout)
+
+    def test_ua_detection(self):
+        self._run(r"""
+const A = boot('');
+const expect = { instagramIOS: ['Instagram', 'ios'], fbAndroid: ['Facebook', 'android'], fbIOS: ['Facebook', 'ios'],
+  linkedin: ['LinkedIn', 'ios'], snapchat: ['Snapchat', 'ios'], tiktok: ['TikTok', 'android'], androidWebView: ['', 'android'] };
+Object.keys(expect).forEach(function (k) {
+  const r = A.inAppBrowser(UA[k]);
+  ok(r && r.name === expect[k][0] && r.os === expect[k][1], k + ' -> ' + JSON.stringify(r));
+});
+['androidChrome', 'iosSafari', 'iosChrome', 'desktopChrome', 'whatsappLike', 'whatsappIOS'].forEach(function (k) {
+  ok(A.inAppBrowser(UA[k]) === null, k + ' must not be warned');
+});
+ok(A.inAppBrowser('') === null && A.inAppBrowser(undefined) === null, 'empty UA');
+""")
+
+    def test_webview_auth_errors_and_links(self):
+        self._run(r"""
+const A = boot('');
+ok(A.isWebviewAuthError({ code: 'auth/disallowed-useragent' }), 'disallowed-useragent');
+ok(A.isWebviewAuthError({ code: 'auth/web-storage-unsupported' }), 'web storage');
+ok(A.isWebviewAuthError({ code: 'auth/operation-not-supported-in-this-environment' }), 'op not supported');
+ok(A.isWebviewAuthError({ code: 'auth/internal-error', message: 'Error 403: disallowed_useragent' }), 'message match');
+ok(!A.isWebviewAuthError({ code: 'auth/popup-closed-by-user' }) && !A.isWebviewAuthError(null), 'normal errors');
+ok(A.appLink(LOC) === 'https://sweta1910.github.io/momsakhi/', A.appLink(LOC));
+ok(A.chromeIntentUrl(LOC) === 'intent://sweta1910.github.io/momsakhi/#Intent;scheme=https;package=com.android.chrome;end', A.chromeIntentUrl(LOC));
+const local = { host: 'localhost:8765', protocol: 'http:', pathname: '/', search: '' };
+ok(A.appLink(local) === 'http://localhost:8765/', A.appLink(local));
+ok(A.chromeIntentUrl(local) === 'intent://localhost:8765/#Intent;scheme=http;package=com.android.chrome;end', 'built from location');
+""")
+
+    def test_welcome_card_per_browser(self):
+        self._run(r"""
+let h = boot(UA.instagramIOS).V.welcome().html;
+ok(h.includes('id="iab-card"') && h.includes('To sign in, open MomSakhi in Chrome or Safari'), 'IG card: ' + h);
+ok(h.includes("inside Instagram's built-in browser") && h.includes('Open in Safari') && h.includes('id="iab-copy"'), 'IG iOS copy');
+ok(h.includes('value="https://sweta1910.github.io/momsakhi/"'), 'link field');
+ok(!h.includes('id="iab-chrome"'), 'no Chrome intent on iOS');
+ok(h.indexOf('id="iab-card"') < h.indexOf('id="google-signin"'), 'card above the Google button');
+h = boot(UA.fbAndroid).V.welcome().html;
+ok(h.includes('id="iab-chrome"') && h.includes('href="intent://sweta1910.github.io/momsakhi/#Intent;scheme=https;package=com.android.chrome;end"'), 'FB Android intent: ' + h);
+['androidChrome', 'iosSafari', 'whatsappLike', 'desktopChrome'].forEach(function (k) {
+  ok(!boot(UA[k]).V.welcome().html.includes('iab-card'), k + ' shows no card');
+});
+// Sign-in failed with a webview error in an unrecognised browser -> same card.
+const A = boot(UA.whatsappLike);
+try { A.showSignInBlocked(); } catch (e) { /* render() needs a DOM; the flag is what matters */ }
+h = A.V.welcome().html;
+ok(h.includes('id="iab-card"') && h.includes("inside this app's built-in browser") && h.includes('id="iab-chrome"'), 'after blocked sign-in: ' + h);
+""")
+
+    def test_sign_in_paths_route_webview_errors_to_card(self):
+        app = _read("app.js")
+        self.assertEqual(app.count("if (isWebviewAuthError(e))"), 2, "popup path and redirect path")
+        self.assertIn('case "copy-app-link"', app)
+        self.assertIn("navigator.clipboard.writeText(appUrl).then(copied, selectCopy)", app)
+        self.assertIn('document.execCommand("copy")', app)
+        self.assertNotIn("WhatsApp", re.search(r"var IAB_RE = (.*);", app).group(1))
+        for sel in (".iab-card", ".iab-actions", ".iab-link"):
+            self.assertIn(sel, _read("styles.css"))
+
+
 if __name__ == "__main__":
     unittest.main()
