@@ -1332,3 +1332,107 @@ ok(h.includes('id="iab-card"') && h.includes("inside this app's built-in browser
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHelplines(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = _read("app.js")
+
+    def test_derive_country(self):
+        node = _node()
+        if not node:
+            self.skipTest("node not installed")
+        
+        # We can extract the deriveCountry function and test it
+        start_idx = self.app.find("function deriveCountry")
+        end_idx = self.app.find("var HELPLINES =")
+        derive_func = self.app[start_idx:end_idx]
+        
+        harness = derive_func + """
+        const cases = [
+            ["Pune", "IN"],
+            ["Mumbai", "IN"],
+            ["San Jose, USA", "US"],
+            ["Edison, NJ, USA", "US"],
+            ["London, UK", "UK"],
+            ["Dubai, UAE", "UAE"],
+            ["Toronto, Canada", "CA"],
+            ["Sydney, Australia", "AU"],
+            ["Singapore", "SG"],
+            ["Berlin, Germany", "DE"],
+            ["Auckland, New Zealand", "NZ"],
+            ["Doha, Qatar", "QA"],
+            ["Unknown City", null],
+            ["", null],
+            [null, null]
+        ];
+        cases.forEach(c => {
+            const res = deriveCountry(c[0]);
+            if (res !== c[1]) {
+                console.error("Failed for " + c[0] + ": expected " + c[1] + " got " + res);
+                process.exit(1);
+            }
+        });
+        console.log("ok");
+        """
+        import subprocess
+        r = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_safety_rendering_by_country(self):
+        node = _node()
+        if not node:
+            self.skipTest("node not installed")
+        
+        harness = """
+        const fs = require('fs'), path = require('path'), vm = require('vm');
+        const webDir = '""" + WEB_DIR + """';
+        const dataJs = fs.readFileSync(path.join(webDir, 'data.js'), 'utf8');
+        const appJs = fs.readFileSync(path.join(webDir, 'app.js'), 'utf8');
+        
+        function boot(city, safetyCountry) {
+            const ls = { store: {}, getItem(k) { return this.store[k] || null; }, setItem(k, v) { this.store[k] = v; }, removeItem(k) { delete this.store[k]; } };
+            const w = { 
+                location: { hash: '#home', search: '', hostname: 'localhost' }, 
+                localStorage: ls,
+                document: { addEventListener() {}, querySelector() { return null; }, getElementById() { return null; }, body: { setAttribute() {} } },
+                Backend: { isReal: false }, console: console, setTimeout: setTimeout, clearTimeout: clearTimeout 
+            };
+            w.window = w;
+            vm.runInContext(dataJs, vm.createContext(w)); 
+            w.localStorage.store['aangan.demo.v1'] = JSON.stringify({ city: city, safetyCountry: safetyCountry });
+            vm.runInContext(appJs, w);
+            return w.AANGAN.V.safety().html;
+        }
+        
+        const htmlIN = boot('Pune', null);
+        if (!htmlIN.includes('14416') || htmlIN.includes('988')) {
+            console.error('India rendering failed'); process.exit(1);
+        }
+        
+        const htmlUS = boot('San Jose, USA', null);
+        if (!htmlUS.includes('988') || htmlUS.includes('14416')) {
+            console.error('US rendering failed'); process.exit(1);
+        }
+        
+        const htmlUK = boot('London, UK', null);
+        if (!htmlUK.includes('111') || !htmlUK.includes('116 123')) {
+            console.error('UK rendering failed'); process.exit(1);
+        }
+        
+        const htmlUnknown = boot('Unknown City', null);
+        if (!htmlUnknown.includes('findahelpline.com') || !htmlUnknown.includes('local emergency number')) {
+            console.error('Unknown rendering failed'); process.exit(1);
+        }
+        
+        const htmlOverride = boot('Pune', 'US');
+        if (!htmlOverride.includes('988') || htmlOverride.includes('14416')) {
+            console.error('Override rendering failed'); process.exit(1);
+        }
+        
+        console.log("ok");
+        """
+        import subprocess
+        r = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)

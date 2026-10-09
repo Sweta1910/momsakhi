@@ -309,18 +309,104 @@
     return false;
   }
 
+    function deriveCountry(cityStr) {
+    if (!cityStr) return null;
+    var parts = cityStr.split(',');
+    var last = parts[parts.length - 1].trim().toLowerCase();
+    
+    var aliases = {
+      'usa': 'US', 'us': 'US', 'united states': 'US',
+      'uk': 'UK', 'united kingdom': 'UK', 'england': 'UK',
+      'uae': 'UAE', 'united arab emirates': 'UAE',
+      'canada': 'CA',
+      'australia': 'AU',
+      'singapore': 'SG',
+      'germany': 'DE',
+      'new zealand': 'NZ', 'nz': 'NZ',
+      'qatar': 'QA',
+      'india': 'IN'
+    };
+    if (aliases[last]) return aliases[last];
+    
+    var indiaCities = ["mumbai", "delhi", "bengaluru", "hyderabad", "chennai", "kolkata", "pune", "ahmedabad", "jaipur", "lucknow", "chandigarh", "kochi", "indore", "bhubaneswar", "noida", "gurugram", "navi mumbai", "thane", "surat", "nagpur", "coimbatore", "visakhapatnam", "goa", "thiruvananthapuram"];
+    if (indiaCities.indexOf(last) >= 0 || indiaCities.indexOf(parts[0].trim().toLowerCase()) >= 0) return 'IN';
+    if (last === 'singapore') return 'SG';
+    return null;
+  }
+
+  var HELPLINES = {
+    'IN': {
+      name: "India",
+      sheetHtml: 'Tele-MANAS: 14416<br>KIRAN: 1800-599-0019',
+      html: '<div class="settings-group"><h3>Tele-MANAS (Govt of India)</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call &middot; 24/7 &middot; Pan-India mental health support</p><div class="card"><a class="link-row" href="tel:14416" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 14416</span>' + icon("chevron") + '</a><a class="link-row" href="tel:18008914416" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 1-800-891-4416</span>' + icon("chevron") + '</a></div></div>' +
+            '<div class="settings-group"><h3>KIRAN Helpline</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Mental health rehabilitation</p><div class="card"><a class="link-row" href="tel:18005990019" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 1800-599-0019</span>' + icon("chevron") + '</a></div></div>',
+      em: '112'
+    },
+    'US': {
+      name: "USA",
+      sheetHtml: 'National Maternal Mental Health Hotline: 1-833-852-6262<br>988 Suicide & Crisis Lifeline: 988',
+      html: '<div class="settings-group"><h3>National Maternal Mental Health Hotline</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call or text 1-833-TLC-MAMA &middot; 24/7 &middot; English &amp; Spanish</p><div class="card"><a class="link-row" href="tel:18338526262" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 1-833-852-6262</span>' + icon("chevron") + '</a><a class="link-row" href="sms:18338526262" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Text 1-833-852-6262</span>' + icon("chevron") + '</a></div></div><div class="settings-group"><h3>988 Suicide & Crisis Lifeline</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call, text or chat &middot; 24/7 &middot; Spanish available</p><div class="card"><a class="link-row" href="tel:988" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 988</span>' + icon("chevron") + '</a><a class="link-row" href="sms:988" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Text 988</span>' + icon("chevron") + '</a><a class="link-row" href="https://chat.988lifeline.org/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Chat online at 988lifeline.org</span>' + icon("chevron") + '</a></div></div><div class="settings-group"><h3>Postpartum Support International</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Leave a message any day — they reply 8am–11pm ET.</p><div class="card"><a class="link-row" href="tel:18009444773" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 1-800-944-4773 (#1 Español, #2 English)</span>' + icon("chevron") + '</a><a class="link-row" href="sms:18009444773&body=HELP" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Text &ldquo;Help&rdquo; to 800-944-4773 (English)</span>' + icon("chevron") + '</a><a class="link-row" href="sms:19712037773" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Texto en espa&ntilde;ol: 971-203-7773</span>' + icon("chevron") + '</a></div></div>',
+      em: '911'
+    },
+    'UK': {
+      name: "UK",
+      sheetHtml: 'PANDAS UK: 0808 1961 776<br>NHS: 111 | Samaritans: 116 123',
+      html: '<div class="settings-group"><h3>PANDAS UK (Perinatal Mental Health)</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call &middot; Free helpline every day 11am-10pm</p><div class="card"><a class="link-row" href="tel:08081961776" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 0808 1961 776</span>' + icon("chevron") + '</a></div></div><div class="settings-group"><h3>NHS 111</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Non-emergency medical advice</p><div class="card"><a class="link-row" href="tel:111" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 111</span>' + icon("chevron") + '</a></div></div><div class="settings-group"><h3>Samaritans</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call &middot; 24/7 &middot; Free</p><div class="card"><a class="link-row" href="tel:116123" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 116 123</span>' + icon("chevron") + '</a></div></div>',
+      em: '999'
+    },
+    'CA': {
+      name: "Canada",
+      sheetHtml: '988 Suicide Crisis Helpline: 988',
+      html: '<div class="settings-group"><h3>988 Suicide Crisis Helpline</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call or text &middot; 24/7</p><div class="card"><a class="link-row" href="tel:988" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 988</span>' + icon("chevron") + '</a><a class="link-row" href="sms:988" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Text 988</span>' + icon("chevron") + '</a></div></div><div class="settings-group"><h3>Postpartum Support International</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Leave a message any day — they reply 8am–11pm ET.</p><div class="card"><a class="link-row" href="tel:18009444773" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 1-800-944-4773 (#1 Español, #2 English)</span>' + icon("chevron") + '</a><a class="link-row" href="sms:18009444773&body=HELP" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Text &ldquo;Help&rdquo; to 800-944-4773 (English)</span>' + icon("chevron") + '</a></div></div>',
+      em: '911'
+    },
+    'AU': {
+      name: "Australia",
+      sheetHtml: 'PANDA: 1300 726 306<br>Lifeline: 13 11 14',
+      html: '<div class="settings-group"><h3>PANDA (Perinatal Anxiety & Depression)</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call &middot; Mon-Sat &middot; Support for parents</p><div class="card"><a class="link-row" href="tel:1300726306" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 1300 726 306</span>' + icon("chevron") + '</a></div></div><div class="settings-group"><h3>Lifeline</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call or text &middot; 24/7 &middot; Crisis support</p><div class="card"><a class="link-row" href="tel:131114" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 13 11 14</span>' + icon("chevron") + '</a><a class="link-row" href="sms:0477131114" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Text 0477 13 11 14</span>' + icon("chevron") + '</a></div></div>',
+      em: '000'
+    },
+    'UAE': {
+      name: "UAE",
+      sheetHtml: 'Estijaba Helpline: 800-1717',
+      html: '<div class="settings-group"><h3>Estijaba Helpline</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call &middot; Mental health support</p><div class="card"><a class="link-row" href="tel:8001717" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 800-1717</span>' + icon("chevron") + '</a></div></div>',
+      em: '999 (Ambulance 998)'
+    },
+    'SG': {
+      name: "Singapore",
+      sheetHtml: 'Samaritans of Singapore (SOS): 1-767<br>IMH Helpline: 6389-2222',
+      html: '<div class="settings-group"><h3>Samaritans of Singapore (SOS)</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call &middot; 24/7</p><div class="card"><a class="link-row" href="tel:1767" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 1-767</span>' + icon("chevron") + '</a></div></div><div class="settings-group"><h3>IMH Mental Health Helpline</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call &middot; 24/7</p><div class="card"><a class="link-row" href="tel:63892222" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 6389-2222</span>' + icon("chevron") + '</a></div></div>',
+      em: '995'
+    },
+    'DE': {
+      name: "Germany",
+      sheetHtml: 'TelefonSeelsorge: 0800 111 0 111',
+      html: '<div class="settings-group"><h3>TelefonSeelsorge</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call &middot; 24/7 &middot; Free and confidential</p><div class="card"><a class="link-row" href="tel:08001110111" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 0800 111 0 111</span>' + icon("chevron") + '</a><a class="link-row" href="tel:08001110222" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 0800 111 0 222</span>' + icon("chevron") + '</a></div></div>',
+      em: '112'
+    },
+    'NZ': {
+      name: "New Zealand",
+      sheetHtml: '1737 Need to talk?: 1737<br>PlunketLine: 0800 933 922',
+      html: '<div class="settings-group"><h3>1737 Need to talk?</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call or text &middot; 24/7</p><div class="card"><a class="link-row" href="tel:1737" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 1737</span>' + icon("chevron") + '</a><a class="link-row" href="sms:1737" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Text 1737</span>' + icon("chevron") + '</a></div></div><div class="settings-group"><h3>PlunketLine</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call &middot; 24/7 &middot; Advice for parents</p><div class="card"><a class="link-row" href="tel:0800933922" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 0800 933 922</span>' + icon("chevron") + '</a></div></div>',
+      em: '111'
+    }
+  };
+
   function showSafetySheet(postCbAction) {
+    var ccode = store.safetyCountry || deriveCountry(store.city || (store.profile && store.profile.city));
+    var cinfo = HELPLINES[ccode];
+    var sheetNumbers = cinfo ? cinfo.sheetHtml : 'Search for mental health support in your country at findahelpline.com';
     var html = '<div style="padding:10px">' +
       '<div style="text-align:center;margin-bottom:16px"><span style="font-size:32px">🤍</span></div>' +
       '<h3 style="text-align:center;margin-bottom:8px">It sounds like you\'re carrying a lot right now. You deserve support right away.</h3>' +
-      '<p class="tiny" style="text-align:center;margin-bottom:24px">National Maternal Mental Health Hotline: 1-833-852-6262<br>988 Suicide & Crisis Lifeline: 988</p>' +
+      '<p class="tiny" style="text-align:center;margin-bottom:24px">' + sheetNumbers + '</p>' +
       '<button class="btn btn-primary btn-block" data-act="sheet-close-then-safety" style="margin-bottom:12px">Talk to someone now</button>' +
       '<button class="btn btn-ghost btn-block" data-act="' + postCbAction + '">Post to the circle</button>' +
       '</div>';
     openSheet(html);
   }
 
-  // ---------------------------------------------------------- components
+// ---------------------------------------------------------- components
   // Reactions. DEMO mode: counts are fictional data.js numbers + her local toggle.
   // REAL mode (2026-10-09, "other moms don't see my hug"): counts are the shared
   // reactions.{r} counters on the Firestore post/reply doc (they already include
@@ -858,38 +944,42 @@
   };
 
 
-  // Helplines re-verified 2026-10-09 against official pages:
-  // - PSI (postpartum.net/get-help/psi-helpline/): call 1-800-944-4773 (#1 Espanol, #2 English);
-  //   text "Help" to 800-944-4773 (English); text en Espanol 971-203-7773; messages returned daily
-  //   8am-11pm ET; PSI says it is NOT a crisis hotline.
-  // - 988 (988lifeline.org): call, text or chat (chat.988lifeline.org), 24/7/365, free, confidential;
-  //   text and chat also in Spanish.
-  // - National Maternal Mental Health Hotline 1-833-852-6262 / 1-833-TLC-MAMA (HRSA,
-  //   mchb.hrsa.gov/national-maternal-mental-health-hotline): call or text, 24/7, English & Spanish.
-  // Demo only: a real launch needs server-side moderation and trained human review.
+    // Helplines re-verified 2026-10-09 against official pages:
+  // - India: Tele-MANAS 14416 / 1-800-891-4416 (mohfw.gov.in), KIRAN 1800-599-0019.
+  // - USA: 988 (988lifeline.org), NMMHH 1-833-TLC-MAMA, PSI 1-800-944-4773.
+  // - UK: NHS 111, Samaritans 116 123, PANDAS UK 0808 1961 776.
+  // - Canada: 988, PSI text line.
+  // - Australia: PANDA 1300 726 306, Lifeline 13 11 14.
+  // - UAE: Estijaba 800-1717.
+  // - Singapore: SOS 1-767, IMH 6389-2222.
+  // - Germany: TelefonSeelsorge 0800 111 0 111.
+  // - New Zealand: 1737, PlunketLine 0800 933 922.
   V.safety = function () {
+    var ccode = store.safetyCountry || deriveCountry(store.city || (store.profile && store.profile.city));
+    var pickHtml = '<div style="margin:16px 0;text-align:center"><label for="safety-country-select" style="font-size:14px" class="muted">Showing helplines for: </label><select id="safety-country-select" style="font-size:14px;background:none;border:none;border-bottom:1px solid var(--ink-4);color:var(--ink-1);font-weight:600;padding:2px;cursor:pointer">';
+    var fall = '<option value="">Other / Unknown</option>';
+    for (var k in HELPLINES) {
+      pickHtml += '<option value="' + k + '"' + (ccode === k ? ' selected' : '') + '>' + esc(HELPLINES[k].name) + '</option>';
+    }
+    pickHtml += fall + '</select></div>';
+
+    var cinfo = HELPLINES[ccode];
+    var listHtml = cinfo ? cinfo.html :
+      '<div class="settings-group"><h3>Find a Helpline</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Search for mental health support in your country</p><div class="card"><a class="link-row" href="https://findahelpline.com/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">' + icon("search") + '<span class="grow">Visit findahelpline.com</span>' + icon("chevron") + "</a></div></div>";
+
+    var em = cinfo ? cinfo.em : "your local emergency number";
+
     return { tab: "me", html:
       '<div class="view"><header class="topbar"><h1>Safety centre</h1><button class="icon-btn" data-act="back" aria-label="Back">' + icon("back") + "</button></header>" +
       '<div class="card" style="margin-top:20px;text-align:center">' +
       '<div style="font-size:32px;margin-bottom:12px">🤍</div>' +
       '<h2 style="margin-bottom:8px">You deserve support right away</h2>' +
-      '<p class="muted">The first two lines are free, confidential, and open 24/7.</p></div>' +
-      '<div class="settings-group"><h3>National Maternal Mental Health Hotline</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call or text 1-833-TLC-MAMA \u00b7 24/7 \u00b7 English &amp; Spanish</p><div class="card">' +
-      '<a class="link-row" href="tel:18338526262" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 1-833-852-6262</span>' + icon("chevron") + "</a>" +
-      '<a class="link-row" href="sms:18338526262" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Text 1-833-852-6262</span>' + icon("chevron") + "</a></div></div>" +
-      '<div class="settings-group"><h3>988 Suicide & Crisis Lifeline</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Call, text or chat \u00b7 24/7 \u00b7 Spanish available</p><div class="card">' +
-      '<a class="link-row" href="tel:988" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 988</span>' + icon("chevron") + "</a>" +
-      '<a class="link-row" href="sms:988" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Text 988</span>' + icon("chevron") + "</a>" +
-      '<a class="link-row" href="https://chat.988lifeline.org/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Chat online at 988lifeline.org</span>' + icon("chevron") + "</a></div></div>" +
-      '<div class="settings-group"><h3>Postpartum Support International (support, not a crisis line)</h3><p class="muted" style="font-size:13px;margin:0 4px 8px">Leave a message any day \u2014 they reply 8am\u201311pm ET. English &amp; Spanish.</p><div class="card">' +
-      '<a class="link-row" href="tel:18009444773" style="text-decoration:none;color:inherit">' + icon("phone") + '<span class="grow">Call 1-800-944-4773 (#1 Espa\u00f1ol, #2 English)</span>' + icon("chevron") + "</a>" +
-      '<a class="link-row" href="sms:18009444773&body=HELP" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Text \u201cHelp\u201d to 800-944-4773 (English)</span>' + icon("chevron") + "</a>" +
-      '<a class="link-row" href="sms:19712037773" style="text-decoration:none;color:inherit">' + icon("chat") + '<span class="grow">Texto en espa\u00f1ol: 971-203-7773</span>' + icon("chevron") + "</a></div></div>" +
-      '<p class="footer-note">If you or your baby are in immediate danger, call 911.<br><br>Moms supporting moms \u2014 not a replacement for your doctor or therapist.</p>' +
+      '<p class="muted">Free, confidential, and open 24/7.</p></div>' +
+      pickHtml + listHtml +
+      '<p class="footer-note">If you or your baby are in immediate danger, call ' + esc(em) + '.<br><br>Moms supporting moms — not a replacement for your doctor or therapist.</p>' +
       "</div>" };
   };
 
-  // ------------------------------------------------------- privacy & terms
   // #privacy: plain, warm Privacy & Terms, linked from the welcome screen, the
   // feedback footer and a Me row. Every "what we store" line mirrors what
   // backend.js actually writes (profiles incl. Google fullName/email, posts/replies
@@ -1934,7 +2024,15 @@
     }
   });
 
-  // Exposed for tests/screenshot tooling only.
+    document.addEventListener("change", function (e) {
+    if (e.target.id === "safety-country-select") {
+      store.safetyCountry = e.target.value;
+      save();
+      render();
+    }
+  });
+
+// Exposed for tests/screenshot tooling only.
   window.AANGAN = { kindnessScan: kindnessScan, softenText: softenText, reset: function () { localStorage.removeItem(STORE_KEY); },
     syncModerator: syncModerator, V: V, isRealMode: isRealMode, cleanCity: cleanCity, saveCity: saveCity,
     inAppBrowser: inAppBrowser, isWebviewAuthError: isWebviewAuthError, appLink: appLink, chromeIntentUrl: chromeIntentUrl,
