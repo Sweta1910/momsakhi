@@ -135,6 +135,36 @@
       }).catch(failToast("save your city", btn));
     }
   }
+  // Nickname editing from the Me tab (2026-10-12). Onboarding was the only place
+  // to set it, so a mom who typed a placeholder ("test") was stuck with it.
+  // Same limits as onboarding: trimmed, 1..NICK_MAX chars, never blank. Saved to
+  // store.profile + localStorage first; in real mode the whole profileDoc() goes
+  // through Backend.saveProfile (merge write on her own /profiles/{uid}, which the
+  // owner-only rule already allows), the same path finish-onboarding uses. On a
+  // failed write the old name is restored so the UI never shows a name Firestore
+  // doesn't have. Resolves with the saved name, or null if blank / it failed.
+  // Posts and replies she already shared keep the author name stored on them.
+  var NICK_MAX = 20;
+  function cleanNick(v) { return String(v == null ? "" : v).trim().slice(0, NICK_MAX).trim(); }
+  function saveNickname(value, btn) {
+    var nick = cleanNick(value);
+    if (!nick) return Promise.resolve(null);
+    var prev = store.profile.nickname;
+    store.profile.nickname = nick; save();
+    var B = window.Backend;
+    if (isRealMode() && B.user && store.onboarded) {
+      busy(btn);
+      return B.saveProfile(B.user.uid, profileDoc()).then(function () {
+        if (btn) btn.disabled = false;
+        return nick;
+      }).catch(function (e) {
+        store.profile.nickname = prev; save(); rerender();
+        failToast("save your nickname", btn)(e);
+        return null;
+      });
+    }
+    return Promise.resolve(nick);
+  }
   // Firestore createdAt is null on a pending local write (serverTimestamp not yet
   // resolved); treat anything missing or odd as "just now" rather than throwing.
   function formatTime(t) {
@@ -207,6 +237,7 @@
     camera: '<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2L9 5h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.5"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     chevron: '<path d="m9 5 7 7-7 7"/>',
+    edit: '<path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
     heart: '<path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z"/>',
     users: '<circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 19.5c1-3 3.5-4.5 6.5-4.5s5.5 1.5 6.5 4.5"/><path d="M16 5.2a3.5 3.5 0 0 1 0 6.6M18 15.2c1.7.6 2.9 2 3.5 4.3"/>',
     reset: '<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>',
@@ -1073,6 +1104,7 @@
       '<div class="view"><header class="topbar"><h1>Me</h1></header>' +
       '<div class="card profile-card">' + avatar(p.nickname, D.me.hue, "xl") +
       "<h2>" + esc(p.nickname) + '</h2><span class="verified" id="me-signin-method">' + icon("shield") + "Signed in with " + authMethodLabel + "</span>" +
+      '<div><button class="link nick-edit" data-act="edit-nick" id="me-edit-nick">' + icon("edit") + "Edit nickname</button></div>" +
       '<div class="chips">' + p.stages.map(function (s) { return '<span class="tag marigold">' + esc(s) + "</span>"; }).join("") + p.langs.map(function (s) { return '<span class="tag teal">' + esc(s) + "</span>"; }).join("") + "</div>" +
       (real ? "</div>" :
       '<div class="stats"><div><b>' + (2 + store.posts.length) + "</b><span>Questions</span></div><div><b>" + (7 + Object.keys(store.answers).reduce(function (n, k) { return n + store.answers[k].length; }, 0)) + "</b><span>Replies</span></div><div><b>" + (31 + Object.keys(store.reacted).length) + "</b><span>Hugs given</span></div></div></div>") +
@@ -1499,6 +1531,28 @@
           '<button class="sheet-item" data-act="sheet-close">' + icon("close") + "<span>Cancel</span></button></div>");
         var sc = $("#sheet-city"); if (sc) sc.focus();
         break;
+      // Me tab: change nickname. The sheet input uses data-input="nick-edit" (not
+      // "nick") so typing doesn't touch the store -- Cancel leaves her name as is.
+      case "edit-nick": {
+        var cur = store.profile.nickname || "";
+        openSheet("<h3>Your nickname</h3><p class=\"muted\">Shown on posts and replies you don't make anonymously. Posts you've already shared keep the name they were posted with.</p>" +
+          '<div class="field"><label for="sheet-nick">Nickname</label>' +
+          '<input class="input" id="sheet-nick" maxlength="' + NICK_MAX + '" value="' + esc(cur) + '" autocomplete="off" enterkeyhint="done" data-input="nick-edit"></div>' +
+          '<div class="sheet-list"><button class="btn btn-primary btn-block" data-act="save-nick" id="sheet-nick-save"' + (cur.trim() ? "" : " disabled") + ">Save</button>" +
+          '<button class="sheet-item" data-act="sheet-close" id="sheet-nick-cancel">' + icon("close") + "<span>Cancel</span></button></div>");
+        var sn = $("#sheet-nick"); if (sn) { sn.focus(); sn.select(); }
+        break;
+      }
+      case "save-nick": {
+        var nin = $("#sheet-nick"), nv = cleanNick(nin ? nin.value : "");
+        if (!nv) { if (nin) nin.focus(); toast("Type a nickname first"); break; }
+        if (nv === store.profile.nickname) { closeSheet(); break; }
+        saveNickname(nv, el).then(function (saved) {
+          if (!saved) return;  // failure already toasted + reverted; sheet stays open to retry
+          closeSheet(); rerender(); toast("Nickname saved · " + saved);
+        });
+        break;
+      }
       case "toggle-stage": case "toggle-lang": {
         var arr = act === "toggle-stage" ? store.profile.stages : store.profile.langs, v = el.getAttribute("data-v");
         var i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v);
@@ -1788,6 +1842,8 @@
     if (k === "nick") {
       store.profile.nickname = v.trim() ? v.trim() : ""; save();
       var b = $("#about-continue"); if (b) b.disabled = !v.trim();
+    } else if (k === "nick-edit") {
+      var nb = $("#sheet-nick-save"); if (nb) nb.disabled = !v.trim();
     } else if (k === "ask-title" || k === "ask-body") {
       askDraft[k === "ask-title" ? "title" : "body"] = v;
       var canPost = askDraft.title.trim().length > 4;
@@ -1805,6 +1861,7 @@
   function onKey(e) {
     if (e.key === "Escape") closeSheet();
     if (e.key === "Enter" && !e.shiftKey && e.target.id === "chat-text") { e.preventDefault(); $("#chat-send").click(); }
+    if (e.key === "Enter" && e.target.id === "sheet-nick") { e.preventDefault(); var nsb = $("#sheet-nick-save"); if (nsb && !nsb.disabled) nsb.click(); }
     if (e.key === "Enter" && e.target.getAttribute && e.target.getAttribute("data-city-input")) {
       e.preventDefault();
       var cbtn = e.target.id === "city-input" ? $("#city-continue") : $('[data-act="save-city"][data-src="' + e.target.id + '"]');
@@ -2067,6 +2124,7 @@
 // Exposed for tests/screenshot tooling only.
   window.AANGAN = { kindnessScan: kindnessScan, softenText: softenText, reset: function () { localStorage.removeItem(STORE_KEY); },
     syncModerator: syncModerator, V: V, isRealMode: isRealMode, cleanCity: cleanCity, saveCity: saveCity,
+    cleanNick: cleanNick, saveNickname: saveNickname, nickname: function () { return store.profile.nickname; },
     inAppBrowser: inAppBrowser, isWebviewAuthError: isWebviewAuthError, appLink: appLink, chromeIntentUrl: chromeIntentUrl,
     showSignInBlocked: showSignInBlocked,
     city: function () { return store.city; } };

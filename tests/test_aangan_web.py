@@ -819,6 +819,116 @@ ok(boot({ isReal: false }, { onboarded: true, city: ' Delhi ' }).city() === 'Del
         self.assertIn("OK", r.stdout)
 
 
+class TestEditNickname(unittest.TestCase):
+    """2026-10-12: the nickname could only be set during onboarding, so a mom who
+    typed a placeholder ("test") was stuck with it. The Me profile card now has an
+    "Edit nickname" control opening a sheet; saves are trimmed, capped at 20 like
+    onboarding, never blank, and in real mode go through Backend.saveProfile(uid,
+    profileDoc()) -- the onboarding path -- reverting on a failed write."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = _read("app.js")
+        with open(os.path.join(APP_DIR, "firestore.rules"), encoding="utf-8") as f:
+            cls.rules = f.read()
+
+    def test_me_tab_has_edit_control_and_sheet(self):
+        self.assertIn('data-act="edit-nick" id="me-edit-nick"', self.app)
+        self.assertIn('case "edit-nick":', self.app)
+        self.assertIn('case "save-nick":', self.app)
+        self.assertIn("var NICK_MAX = 20;", self.app)
+        # Onboarding keeps the same cap.
+        self.assertIn('id="nick" maxlength="20"', self.app)
+        # Sheet input must NOT reuse data-input="nick" (that writes the store per keystroke,
+        # which would make Cancel a no-op).
+        self.assertIn('data-input="nick-edit"', self.app)
+        self.assertIn('k === "nick-edit"', self.app)
+
+    def test_save_goes_through_save_profile_with_full_doc(self):
+        i = self.app.index("function saveNickname(")
+        body = self.app[i:self.app.index("\n  }\n", i)]
+        self.assertIn("B.saveProfile(B.user.uid, profileDoc())", body)
+        self.assertIn("store.profile.nickname = prev", body)  # revert on failure
+        self.assertIn('failToast("save your nickname", btn)', body)
+
+    def test_profile_rules_allow_owner_nickname_write_unchanged(self):
+        self.assertIn("match /profiles/{uid} {\n      allow read: if request.auth != null && request.auth.uid == uid;\n"
+                      "      allow write: if request.auth != null && request.auth.uid == uid;", self.rules)
+
+    def test_rendered_behaviour_demo_and_real(self):
+        node = _node()
+        if not node:
+            self.skipTest("node not installed")
+        harness = r"""
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const webDir = %r;
+const dataJs = fs.readFileSync(path.join(webDir, 'data.js'), 'utf8');
+const appJs = fs.readFileSync(path.join(webDir, 'app.js'), 'utf8');
+function boot(backend, seed) {
+  const ls = { store: {}, getItem(k) { return this.store[k] || null; }, setItem(k, v) { this.store[k] = v; }, removeItem(k) { delete this.store[k]; } };
+  if (seed) ls.store['aangan.demo.v1'] = JSON.stringify(seed);
+  // Forgiving fake element: the failure path re-renders, which touches the DOM.
+  const el = { textContent: '', hidden: true, innerHTML: '', style: {}, scrollTop: 0, dataset: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    setAttribute() {}, removeAttribute() {}, getAttribute() { return null; }, addEventListener() {},
+    appendChild() {}, insertAdjacentHTML() {}, focus() {}, scrollTo() {}, closest() { return null; },
+    querySelector() { return null; }, querySelectorAll() { return []; } };
+  const w = { location: { hash: '#me', search: '', hostname: 'localhost' }, localStorage: ls,
+    document: { addEventListener() {}, querySelector() { return el; }, querySelectorAll() { return []; }, getElementById() { return null; }, body: { setAttribute() {} } },
+    Backend: backend, console: { log() {}, error() {}, warn() {} }, setTimeout: setTimeout, clearTimeout: clearTimeout };
+  w.window = w;
+  vm.runInContext(dataJs, vm.createContext(w)); vm.runInContext(appJs, w);
+  w.AANGAN._ls = ls; w.AANGAN._el = el;
+  return w.AANGAN;
+}
+function ok(c, msg) { if (!c) throw new Error(msg); }
+const seed = { onboarded: true, city: 'Pune', profile: { nickname: 'test', fullName: '', email: '', anonDefault: false, stages: ['Toddler'], langs: ['Hindi'] } };
+(async () => {
+  for (const real of [false, true]) {
+    const tag = real ? 'real: ' : 'demo: ';
+    const A = boot({ isReal: real }, seed);
+    const me = A.V.me().html;
+    ok(me.includes('id="me-edit-nick"') && me.includes('Edit nickname'), tag + 'Me tab has no edit control: ' + me);
+    // Blank / whitespace-only names are rejected and change nothing.
+    ok(A.cleanNick('   ') === '', tag + 'blank must clean to empty');
+    ok((await A.saveNickname('')) === null && (await A.saveNickname('   ')) === null, tag + 'blank must be rejected');
+    ok(A.nickname() === 'test', tag + 'blank changed nickname: ' + A.nickname());
+    // Trimmed + capped at 20, like onboarding.
+    ok(A.cleanNick('x'.repeat(30)).length === 20, tag + 'not capped at 20');
+    ok(A.cleanNick('  Asha  ') === 'Asha', tag + 'not trimmed');
+    if (!real) {
+      ok((await A.saveNickname('  Asha  ')) === 'Asha' && A.nickname() === 'Asha', 'demo save: ' + A.nickname());
+      ok(JSON.parse(A._ls.store['aangan.demo.v1']).profile.nickname === 'Asha', 'demo save not persisted locally');
+      ok(A.V.me().html.includes('<h2>Asha</h2>'), 'Me not showing new name');
+      // Escaped on render.
+      await A.saveNickname('<b>x</b>');
+      ok(A.V.me().html.includes('&lt;b&gt;x&lt;/b&gt;') && !A.V.me().html.includes('<b>x</b>'), 'nickname not escaped');
+    }
+  }
+  // Real mode: one saveProfile(uid, profileDoc()) with the new name (and city kept).
+  const calls = [];
+  const be = (fail) => ({ isReal: true, user: { uid: 'u1' },
+    saveProfile(uid, doc) { calls.push([uid, JSON.parse(JSON.stringify(doc))]); return fail ? Promise.reject({ code: 'permission-denied' }) : Promise.resolve(); } });
+  const R = boot(be(false), seed);
+  ok((await R.saveNickname(' Sweta ')) === 'Sweta', 'real save result');
+  ok(calls.length === 1 && calls[0][0] === 'u1' && calls[0][1].nickname === 'Sweta' && calls[0][1].city === 'Pune' && Array.isArray(calls[0][1].stages), 'real saveProfile call: ' + JSON.stringify(calls));
+  ok(JSON.parse(R._ls.store['aangan.demo.v1']).profile.nickname === 'Sweta', 'real save not persisted locally');
+  // Blank never reaches Firestore.
+  await R.saveNickname('   ');
+  ok(calls.length === 1, 'blank name must not call saveProfile');
+  // Failed write: toast + revert to the old name, locally too.
+  const F = boot(be(true), seed);
+  ok((await F.saveNickname('Nope')) === null, 'failed save must resolve null');
+  ok(F.nickname() === 'test' && JSON.parse(F._ls.store['aangan.demo.v1']).profile.nickname === 'test', 'failed save not reverted: ' + F.nickname());
+  ok(/Couldn't save your nickname yet \(permission-denied\)/.test(F._el.textContent), 'no failure toast: ' + F._el.textContent);
+  console.log('OK');
+})().catch(e => { console.error(e.message); process.exit(1); });
+""" % WEB_DIR
+        r = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("OK", r.stdout)
+
+
 class TestSharedReactions(unittest.TestCase):
     """2026-10-09: reactions were localStorage-only, so other moms never saw a hug.
     Real mode now writes a per-mom marker + a +-1 counter in one batch; rules make
