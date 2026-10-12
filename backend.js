@@ -41,7 +41,14 @@
     setReaction: null,
     listenMyReactions: null,
     addFeedback: null,
-    listenFeedback: null
+    listenFeedback: null,
+    checkMember: null,
+    getInvite: null,
+    redeemInvite: null,
+    createInvite: null,
+    listenInvites: null,
+    disableInvite: null,
+    deleteInvite: null
   };
 
   // Popup failures that mean "this browser can't do popups", not "the mom said no".
@@ -381,6 +388,63 @@
       // Test hook (emulator rules checks in the two-user harness); grants nothing
       // beyond what the page could already do -- firestore.rules is the gate.
       Backend._fs = modules[2];
+
+      // ---- Closed beta: invite codes (2026-10-12). firestore.rules is the real
+      // gate (isMember()); these are thin calls. Timestamps come back as millis
+      // (expiresAtMs / createdAtMs) so app.js never touches Firestore types.
+      function inviteData(snap) {
+        var d = snap.data({ serverTimestamps: "estimate" }) || {};
+        var out = { code: snap.id, maxUses: d.maxUses, uses: d.uses, note: d.note || null, createdBy: d.createdBy };
+        out.expiresAtMs = d.expiresAt && d.expiresAt.toMillis ? d.expiresAt.toMillis() : null;
+        out.createdAtMs = d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : null;
+        return out;
+      }
+      // True when /members/{uid} exists (rules: she may read only her own).
+      Backend.checkMember = function(uid) {
+        return getDoc(doc(db, "members", uid)).then(function(snap) { return snap.exists(); });
+      };
+      // One invite by exact code (rules allow `get`, never `list`, for non-moderators).
+      // Null when there is no such code.
+      Backend.getInvite = function(code) {
+        return getDoc(doc(db, "invites", code)).then(function(snap) { return snap.exists() ? inviteData(snap) : null; });
+      };
+      // Redemption is ONE batch: her member doc + exactly +1 on the code's uses.
+      // Rules accept each half only alongside the other (redeemedWith / redeemBump),
+      // and increment(1) is applied server-side, so two moms racing for the last
+      // seat can't both get in (the second sees uses == maxUses and is denied).
+      Backend.redeemInvite = function(uid, code) {
+        var batch = writeBatch(db);
+        batch.set(doc(db, "members", uid), { code: code, joinedAt: serverTimestamp() });
+        batch.update(doc(db, "invites", code), { uses: increment(1) });
+        return batch.commit();
+      };
+      // Moderators only. setDoc on an existing code would be an update, which rules
+      // reject (uses/createdBy may not change), so a collision fails instead of
+      // overwriting a live code.
+      Backend.createInvite = function(uid, code, maxUses, note, expiresAtMs) {
+        var data = { maxUses: maxUses, uses: 0, createdBy: uid, createdAt: serverTimestamp() };
+        if (note) data.note = str(note, "").slice(0, 80);
+        if (expiresAtMs) data.expiresAt = modules[2].Timestamp.fromMillis(expiresAtMs);
+        return setDoc(doc(db, "invites", code), data);
+      };
+      Backend.listenInvites = function(cb, onError) {
+        var q = query(collection(db, "invites"), orderBy("createdAt", "desc"), limit(200));
+        return onSnapshot(q, function(snap) {
+          var items = [];
+          snap.forEach(function(d) { items.push(inviteData(d)); });
+          cb(items);
+        }, function(e) {
+          console.error("listenInvites failed", e);
+          if (onError) onError(e);
+        });
+      };
+      // "Disable" = no seats left (maxUses := uses); the code stays listed for the record.
+      Backend.disableInvite = function(code, uses) {
+        return updateDoc(doc(db, "invites", code), { maxUses: uses });
+      };
+      Backend.deleteInvite = function(code) {
+        return deleteDoc(doc(db, "invites", code));
+      };
 
     }).catch(function(e) {
       console.error("Firebase load failed, demo mode fallback", e);

@@ -77,8 +77,112 @@
   // Moderator state is deliberately NOT in `store`: it must never be persisted to
   // localStorage (a stale/forged flag would only hide buttons anyway -- Firestore
   // rules are the real gate). Reset on every auth change by syncModerator().
-  var modState = { isMod: false, reports: [], unsub: null, postCache: {}, fetching: {}, feedback: [], unsubFb: null };
+  var modState = { isMod: false, reports: [], unsub: null, postCache: {}, fetching: {}, feedback: [], unsubFb: null, invites: [], unsubInv: null };
   function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* ignore */ } }
+
+  // ------------------------------------------------- closed beta: invite codes
+  // 2026-10-12. Real mode only (demo mode never gates). A signed-in mom needs a
+  // /members/{uid} doc (or to be a moderator) before she can read or write
+  // anything; firestore.rules isMember() is the REAL gate, this is just the UI.
+  //  - Codes: SAKHI- + 6 chars from an alphabet without 0/O/1/I (32 symbols, so
+  //    byte % 32 is unbiased). 6 rather than 4 chars: a non-member may `get` any
+  //    code by exact id, and 32^6 (~1e9) makes guessing a live code hopeless where
+  //    32^4 (~1e6) would not be.
+  //  - ?invite=CODE (or #route?invite=CODE) is captured at load into localStorage
+  //    (INVITE_KEY) and stripped from the URL, so it survives the Google
+  //    signInWithRedirect round trip; after sign-in it is prefilled and
+  //    auto-submitted once.
+  //  - access.status: "checking" | "member" | "none" | "error". store.memberUid
+  //    caches "this uid was a member" so a returning member never sees a gate
+  //    flash while the check runs (the rules still decide every read).
+  var INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  var INVITE_LEN = 6;
+  var INVITE_RE = /^SAKHI-[A-HJ-NP-Z2-9]{6}$/;
+  var INVITE_KEY = "momsakhi.invite";
+  var INVITE_LINK = "https://sweta1910.github.io/momsakhi/?invite=";
+  var INVITE_MAX_SEATS = 50;
+  var INVITE_NOTE_MAX = 80;
+  var INVITE_ERR = {
+    format: "That doesn\u2019t look like an invite code. Codes look like SAKHI-7F3KQ9.",
+    missing: "We couldn\u2019t find that code. Check it for typos, or ask the mom who invited you for a fresh link.",
+    used: "This code has already been used up. Ask the mom who invited you for a new one.",
+    expired: "This code has expired. Ask the mom who invited you for a new one."
+  };
+  function newInviteCode() {
+    var bytes = new Uint8Array(INVITE_LEN), c = window.crypto, out = "";
+    if (c && c.getRandomValues) c.getRandomValues(bytes);
+    else for (var i = 0; i < INVITE_LEN; i++) bytes[i] = Math.floor(Math.random() * 256);
+    for (var j = 0; j < INVITE_LEN; j++) out += INVITE_ALPHABET.charAt(bytes[j] % 32);
+    return "SAKHI-" + out;
+  }
+  // Forgiving input: case, spaces, dashes and a missing "SAKHI" prefix are fine.
+  // Returns the canonical code, or "" if it can't be one.
+  function normalizeInviteCode(v) {
+    var s = String(v == null ? "" : v).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (s.indexOf("SAKHI") === 0) s = s.slice(5);
+    var code = "SAKHI-" + s;
+    return INVITE_RE.test(code) ? code : "";
+  }
+  function inviteLink(code) { return INVITE_LINK + encodeURIComponent(code); }
+  // Pure: pull invite=... out of a query string ("a=1&invite=X") -> {value, rest}.
+  function stripParam(q, name) {
+    var found = null;
+    var kept = String(q || "").split("&").filter(function (kv) {
+      if (!kv) return false;
+      var i = kv.indexOf("="), k = i < 0 ? kv : kv.slice(0, i);
+      if (k !== name) return true;
+      if (found === null) { try { found = decodeURIComponent((i < 0 ? "" : kv.slice(i + 1)).replace(/\+/g, " ")); } catch (e) { found = ""; } }
+      return false;
+    });
+    return { value: found, rest: kept.join("&") };
+  }
+  // Pure: invite from location.search or from a "#route?invite=X" hash. Returns
+  // the raw value (null if none), its canonical code ("" if malformed) and the
+  // search/hash with invite removed (other params such as ?emu=1 are kept).
+  function extractInvite(search, hash) {
+    var s = stripParam(String(search || "").replace(/^\?/, ""), "invite");
+    var h = String(hash || ""), qi = h.indexOf("?"), hv = null, hh = h;
+    if (qi >= 0) { var t = stripParam(h.slice(qi + 1), "invite"); hv = t.value; hh = h.slice(0, qi) + (t.rest ? "?" + t.rest : ""); }
+    var raw = s.value !== null ? s.value : hv;
+    return { raw: raw, code: raw === null ? "" : normalizeInviteCode(raw), search: s.rest ? "?" + s.rest : "", hash: hh === "#" ? "" : hh };
+  }
+  // "ok" | "missing" | "used" (no seats left, incl. disabled) | "expired".
+  function inviteStatus(inv, nowMs) {
+    if (!inv) return "missing";
+    if (inv.expiresAtMs && nowMs >= inv.expiresAtMs) return "expired";
+    if (!(inv.uses < inv.maxUses)) return "used";
+    return "ok";
+  }
+  function pendingInvite() { try { return localStorage.getItem(INVITE_KEY) || ""; } catch (e) { return ""; } }
+  // src "link" = captured from an invite link (survives the sign-in redirect, so the
+  // gate can say "Filled in from your invite link"); "typed" = she entered it.
+  function setPendingInvite(v, src) {
+    try { if (v) { localStorage.setItem(INVITE_KEY, String(v).slice(0, 40)); localStorage.setItem(INVITE_KEY + ".src", src || "typed"); } } catch (e) { /* ignore */ }
+  }
+  function clearPendingInvite() { try { localStorage.removeItem(INVITE_KEY); localStorage.removeItem(INVITE_KEY + ".src"); } catch (e) { /* ignore */ } }
+  function inviteFromLink() { try { return localStorage.getItem(INVITE_KEY + ".src") === "link"; } catch (e) { return false; } }
+  (function captureInvite() {
+    try {
+      var loc = window.location;
+      var x = extractInvite(loc.search, loc.hash);
+      if (x.raw === null) return;
+      setPendingInvite(x.code || String(x.raw).trim().toUpperCase(), "link");
+      if (window.history && window.history.replaceState) window.history.replaceState(null, "", (loc.pathname || "") + x.search + x.hash);
+    } catch (e) { /* never block the app over a link */ }
+  })();
+  function freshAccess() { return { uid: null, status: "none", promise: null, error: "", code: "", busy: false, autoTried: false }; }
+  var access = freshAccess();
+  // Should this signed-in mom see the invite screen instead of the app?
+  function gateOn() {
+    var B = window.Backend;
+    if (!isRealMode() || !B || !B.user) return false;
+    var cached = store.memberUid === B.user.uid;
+    if (access.uid !== B.user.uid) return !cached;
+    if (access.status === "member") return false;
+    if (access.status === "checking" || access.status === "error") return !cached;
+    return true;
+  }
+  function hasAccess() { return !isRealMode() || !!(window.Backend && window.Backend.user && !gateOn()); }
 
   // -------------------------------------------------------------- helpers
   function esc(s) {
@@ -588,7 +692,7 @@
       '<div class="welcome view">' +
       '<div class="toran" aria-hidden="true"></div>' + mandala() +
       // First thing on screen: a mom arriving from Instagram must see it without scrolling.
-      '<div class="welcome-hero">' + inAppCard() +
+      '<div class="welcome-hero">' + inAppCard() + welcomeInvite() +
       '<div class="logo">' + logoMark() + '<span class="logo-word" style="font-size:28px">' + esc(BRAND.name) + "</span></div>" +
       "<h1>" + esc(BRAND.tagline).replace("sakhi", "<em>sakhi</em>") + "</h1>" +
       '<p class="sakhi-note"><b>Sakhi</b> (सखी) means a close friend — no judgement, just moms.</p>' +
@@ -606,8 +710,39 @@
       '<button class="btn btn-ghost btn-block" data-act="skip-onboarding" id="have-account">I already have an account</button>' +
       '<p class="tiny" style="margin-bottom:8px;font-weight:600">Moms supporting moms — not a replacement for your doctor or therapist.</p>' +
       '<p class="tiny terms-line" id="welcome-terms">By continuing you agree to our <a href="#privacy" id="welcome-privacy">Terms &amp; Privacy</a>.</p>' +
-      '<p class="tiny">' + (isRealMode() ? "Real moms, real posts · sign in with Google to join" : "Prototype · all people, posts and places are fictional demo data") + '</p>' +
+      '<p class="tiny" id="welcome-mode-line">' + (isRealMode() ? "Invite-only during the beta · sign in with Google, then enter your invite code" : "Prototype · all people, posts and places are fictional demo data") + '</p>' +
       "</div></div>" };
+  };
+  // Signed-out mom who arrived via an invite link: tell her the code is waiting.
+  function welcomeInvite() {
+    var code = pendingInvite();
+    if (!isRealMode() || !code) return "";
+    return '<div class="card invite-banner" id="welcome-invite" role="status"><span aria-hidden="true">\ud83d\udc8c</span><div><b>You\u2019ve been invited!</b>' +
+      "<span>Your invite code <b>" + esc(code) + "</b> will be used after you sign in.</span></div></div>";
+  }
+
+  // The closed-beta gate (render() shows this for a signed-in non-member, whatever
+  // the route; see gateOn()). Prefilled from the ?invite= link when there was one.
+  V.invite = function () {
+    var B = window.Backend, u = B && B.user;
+    var head = '<div class="view invite-view"><div class="ob">' + '<div class="logo" style="justify-content:center;margin-bottom:6px">' + logoMark() + '<span class="logo-word" style="font-size:24px">' + esc(BRAND.name) + "</span></div>";
+    if (!u || access.uid !== u.uid || access.status === "checking") {
+      return { tab: null, html: head + '<h1 id="invite-checking">Checking your invite\u2026</h1><p class="lead">Just a moment.</p></div></div>' };
+    }
+    var val = access.code || pendingInvite();
+    var fromLink = inviteFromLink() && val && val === pendingInvite() && !access.error;
+    return { tab: null, html: head +
+      "<h1>Enter your invite code</h1>" +
+      '<p class="lead">' + esc(BRAND.name) + " is invite-only during the beta. Ask the mom who invited you for her code or link.</p>" +
+      '<div class="field"><label for="invite-code">Invite code</label>' +
+      '<input class="input invite-input" id="invite-code" data-input="invite-code" value="' + esc(val) + '" placeholder="SAKHI-7F3KQ9" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"' + (access.busy ? " disabled" : "") + ">" +
+      (fromLink ? '<p class="hint" id="invite-from-link">Filled in from your invite link \ud83d\udc8c</p>' : "") +
+      (access.error ? '<p class="invite-error" id="invite-error" role="alert">' + esc(access.error) + "</p>" : "") + "</div>" +
+      '<div class="ob-foot"><button class="btn btn-primary btn-block" data-act="invite-redeem" id="invite-submit"' + (access.busy || !val ? " disabled" : "") + ">" + (access.busy ? "Checking\u2026" : "Join " + esc(BRAND.name)) + "</button>" +
+      '<p class="tiny" style="text-align:center;margin-top:12px">No code yet? <button class="link" data-act="feedback" id="invite-feedback">Send us a note</button></p>' +
+      '<p class="tiny" style="text-align:center">An invite code only lets you in \u2014 it isn\u2019t a check of who you are. <a href="#privacy" id="invite-privacy">Privacy &amp; Terms</a></p>' +
+      '<p class="tiny" style="text-align:center">Signed in as ' + esc(u.email || "your Google account") + ' \u00b7 <button class="link" data-act="sign-out" id="invite-signout">Sign out</button></p>' +
+      "</div></div></div>" };
   };
   function promiseRow(emoji, bg, title, sub) {
     return '<div class="card promise-row"><span class="pi" style="background:' + bg + '">' + emoji + "</span><div><b>" + title + "</b><span>" + sub + "</span></div></div>";
@@ -1057,10 +1192,12 @@
       "<p>" + name + " is a small, kind corner of the internet for moms. Here is, in plain words, who can join, what we keep, who sees what, and the few rules that keep it safe.</p></div>" +
       privacySection("🌸", "Who can join",
         "<p>" + name + " is for women aged 18 and over who are moms or moms-to-be. One account per person, please.</p>" +
+        "<p>During the beta, " + name + " is <b>invite-only</b>: you join with an invite code or link from a moderator. An invite code only lets you in \u2014 it isn\u2019t a check of who you are.</p>" +
         "<p>Signing in with Google only tells us you have a Google account \u2014 we don\u2019t check identity or gender. " + name + " is a moderated community, so please keep it kind and report anything that feels off.</p>") +
       privacySection("🗂️", "What we store",
         "<p>When you sign in with Google, we receive your <b>name, email address and profile photo</b> from Google. We keep your name and email on your private profile so we know the account is yours.</p>" +
         "<p>We also store what you add: your nickname, the stages and languages you pick, your <b>city if you add it</b>, your <b>posts and replies</b> (and whether each one is anonymous), the <b>reactions</b> you give, any posts you report, and <b>feedback notes</b> you send (with the page you sent them from and your browser type).</p>" +
+        "<p>When you join with an invite code, we also note <b>which code you used and when you joined</b>, so moderators can manage beta invites.</p>" +
         "<p>All of this lives in <b>Google Firebase</b> (Firebase Authentication and Cloud Firestore). A few settings are also kept in your browser on this device.</p>") +
       privacySection("👀", "What other moms see",
         "<p>Other moms see your <b>nickname</b> (or <b>\u201cAnonymous mom\u201d</b>), your posts, your replies and reaction counts. They <b>never</b> see your email address, and your profile is readable only by you.</p>") +
@@ -1180,8 +1317,67 @@
       (fbList || emptyState("💬", "No feedback yet", "Notes from moms show up here, newest first.")) : "";
     return { tab: "me", html: head +
       '<p class="muted" style="padding:0 18px 6px;font-size:14px">' + (isRealMode() ? "Reported posts, newest first. Removing deletes the post, its replies and its reports for everyone." : "Demo mode: reports you make on this device show up here.") + "</p>" +
-      (list || emptyState("🌿", "No open reports", "All clear. Thank you for keeping " + esc(BRAND.name) + " kind.")) + fbSection + "</div>" };
+      (list || emptyState("🌿", "No open reports", "All clear. Thank you for keeping " + esc(BRAND.name) + " kind.")) + inviteSection() + fbSection + "</div>" };
   };
+  // ---- Invite codes (moderators, real mode). Create / list / copy link / share /
+  // disable / delete. Rules: only moderators can list or create (see /invites).
+  function fmtDay(ms) { try { return new Date(ms).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }); } catch (e) { return ""; } }
+  var INVITE_LABEL = { ok: "Active", used: "No seats left", expired: "Expired" };
+  function inviteSection() {
+    if (!isRealMode()) return "";
+    var items = modState.invites || [], now = Date.now();
+    var canShare = typeof navigator !== "undefined" && !!navigator.share;
+    var rows = items.map(function (inv) {
+      var st = inviteStatus(inv, now), c = esc(inv.code);
+      return '<article class="card mod-item invite-item" id="inv-' + c + '">' +
+        '<div class="mod-meta"><span class="tag ' + (st === "ok" ? "teal" : "marigold") + '">' + INVITE_LABEL[st] + '</span><span class="tiny">' +
+        esc(inv.uses) + " / " + esc(inv.maxUses) + " used" + (inv.expiresAtMs ? " \u00b7 expires " + esc(fmtDay(inv.expiresAtMs)) : "") + "</span></div>" +
+        '<h3 class="mod-title invite-code">' + c + "</h3>" + (inv.note ? '<p class="muted mod-body">' + esc(inv.note) + "</p>" : "") +
+        '<div class="mod-actions">' +
+        '<button class="btn btn-primary btn-sm" data-act="invite-copy" data-code="' + c + '">Copy invite link</button>' +
+        (canShare ? '<button class="btn btn-ghost btn-sm" data-act="invite-share" data-code="' + c + '">Share</button>' : "") +
+        (st === "ok" ? '<button class="btn btn-ghost btn-sm" data-act="invite-disable" data-code="' + c + '" data-uses="' + esc(inv.uses) + '">Disable</button>' : "") +
+        '<button class="btn btn-ghost btn-sm" data-act="invite-delete" data-code="' + c + '">Delete</button>' +
+        "</div></article>";
+    }).join("");
+    return '<div class="section-head" style="padding:0 18px" id="invites-head"><h2>Invite codes</h2><span class="muted">' + items.length + "</span></div>" +
+      '<div class="card invite-form" id="invite-form">' +
+      '<p class="muted" style="margin:0 0 10px;font-size:14px">' + esc(BRAND.name) + " is invite-only during the beta. Each seat lets one mom join.</p>" +
+      '<div class="invite-form-row"><div class="field"><label for="inv-max">Seats</label><input class="input" id="inv-max" type="number" min="1" max="' + INVITE_MAX_SEATS + '" value="1" inputmode="numeric"></div>' +
+      '<div class="field"><label for="inv-exp">Expires <span class="tiny">(optional)</span></label><input class="input" id="inv-exp" type="date"></div></div>' +
+      '<div class="field"><label for="inv-note">Note <span class="tiny">(optional, only moderators see it)</span></label><input class="input" id="inv-note" maxlength="' + INVITE_NOTE_MAX + '" placeholder="for Priya" autocomplete="off"></div>' +
+      '<button class="btn btn-primary btn-block" data-act="invite-create" id="inv-create">Create invite code</button></div>' +
+      (rows || emptyState("\ud83d\udc8c", "No invite codes yet", "Create one above, then copy the link and send it to a mom you know."));
+  }
+  // "YYYY-MM-DD" -> end of that local day in ms; null if empty; false if invalid/past.
+  function parseExpiry(v, nowMs) {
+    if (!v) return null;
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (!m) return false;
+    var t = new Date(+m[1], +m[2] - 1, +m[3], 23, 59, 59).getTime();
+    return t > nowMs ? t : false;
+  }
+  function createInviteFromForm(btn) {
+    var B = window.Backend;
+    if (!B || !B.user || !modState.isMod || !B.createInvite) return;
+    var n = parseInt(($("#inv-max") || {}).value, 10);
+    if (!(n >= 1 && n <= INVITE_MAX_SEATS)) { toast("Seats must be between 1 and " + INVITE_MAX_SEATS); return; }
+    var note = String(($("#inv-note") || {}).value || "").replace(/\s+/g, " ").trim().slice(0, INVITE_NOTE_MAX);
+    var exp = parseExpiry(($("#inv-exp") || {}).value, Date.now());
+    if (exp === false) { toast("Pick an expiry date in the future (or leave it empty)"); return; }
+    var code = newInviteCode();
+    busy(btn);
+    B.createInvite(B.user.uid, code, n, note, exp).then(function () {
+      btn.disabled = false;
+      toast("Invite code created \u00b7 " + code);
+    }).catch(failToast("create the code", btn));
+  }
+  function copyInvite(code) {
+    var url = inviteLink(code);
+    var ask = function () { window.prompt("Copy this invite link:", url); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(function () { toast("Invite link copied \u2713"); }, ask);
+    else ask();
+  }
 
   // --------------------------------------------------------------- router
   var TABS = [
@@ -1200,8 +1396,13 @@
   }
   var lastRoute = "";
   var FEEDBACK_FOOT_TABS = ["home", "nearby", "meetups"];
+  // While the beta gate is on, only these routes render as themselves.
+  var GATE_OPEN = ["invite", "privacy", "safety"];
   function render(keepScroll) {
     var r = parseHash();
+    var gated = gateOn();
+    if (gated && GATE_OPEN.indexOf(r.name) < 0) r = { name: "invite", arg: null };
+    else if (!gated && r.name === "invite") r = { name: store.onboarded ? "home" : ((isRealMode() && window.Backend.user) ? "onboard/city" : "welcome"), arg: null };
     var view = V[r.name] || V.home;
     var out = view(r.arg);
     var screen = $("#screen");
@@ -1223,7 +1424,7 @@
     // Other tab-less views (#q/<id>, #chat/<id>, #chats) used to inherit it, which on
     // laptop widths laid the post, replies and reply box out side-by-side in one row
     // (found in the 2026-10-09 two-user emulator test).
-    var isOnboarding = r.name === "welcome" || r.name.indexOf("onboard/") === 0;
+    var isOnboarding = r.name === "welcome" || r.name.indexOf("onboard/") === 0 || r.name === "invite";
     var app = $("#app");
     if (app) app.classList.toggle("onboarding-mode", isOnboarding);
     document.body.setAttribute("data-view", r.name);
@@ -1237,6 +1438,7 @@
     // so a visitor reading the terms isn't offered app tabs she can't use yet.
     var isDetail = !isOnboarding && out.tab === null && r.name !== "chats";
     tabbar.hidden = isOnboarding || (r.name === "privacy" && !store.onboarded);
+    if (gated) tabbar.hidden = true;  // no app tabs for a mom who hasn't joined yet
     tabbar.classList.toggle("detail-nav", isDetail);
     var tabLinks = $("#tab-links") || tabbar;
     tabLinks.innerHTML = TABS.map(function (t) {
@@ -1389,6 +1591,16 @@
     store.profile.fullName = u.displayName || "";
     store.profile.email = u.email || "";
     save();
+    // Closed beta: a non-member goes to the invite screen first (her profile is
+    // members-only, so reading it now would just be denied).
+    return accessFor(u).then(function (ok) {
+      if (!ok) { go("#invite"); return; }
+      return routeByProfile(u);
+    });
+  }
+  // Existing profile -> home; none yet -> onboarding. Used after sign-in and
+  // right after a successful invite redemption.
+  function routeByProfile(u) {
     return window.Backend.getProfile(u.uid).then(function(p) {
       if (p) {
         applyProfile(p);
@@ -1403,6 +1615,73 @@
       failToast("load your profile", null)(e);
       go("#onboard/city");
     });
+  }
+  // One membership check per signed-in uid (memoised; onAuth and the popup path
+  // share it). Moderators count as members. A failed check is "error" and is not
+  // memoised, so the next call retries.
+  function accessFor(u) {
+    if (access.uid === u.uid && access.promise) return access.promise;
+    var keep = access.uid === u.uid ? access : null;
+    access = freshAccess();
+    access.uid = u.uid; access.status = "checking";
+    if (keep) { access.code = keep.code; access.autoTried = keep.autoTried; }
+    var B = window.Backend;
+    var mod = B.checkModerator ? B.checkModerator(u.uid).catch(function () { return false; }) : Promise.resolve(false);
+    var mem = B.checkMember ? B.checkMember(u.uid) : Promise.resolve(false);
+    var mine = access;
+    access.promise = Promise.all([mod, mem]).then(function (r) {
+      var ok = !!(r[0] || r[1]);
+      if (access !== mine) return ok;
+      access.status = ok ? "member" : "none";
+      if (ok) { store.memberUid = u.uid; save(); clearPendingInvite(); }
+      else if (store.memberUid === u.uid) { store.memberUid = null; save(); }
+      return ok;
+    }, function (e) {
+      console.error("MomSakhi: couldn't check membership", e);
+      if (access === mine) { access.status = "error"; access.promise = null; access.error = "Couldn\u2019t check your invite yet (" + errCode(e) + "). Enter your code, or try again in a moment."; }
+      return store.memberUid === u.uid;
+    });
+    return access.promise;
+  }
+  // The invite screen's Join button (and the one-time auto-submit for a link).
+  // Reads the code first so the mom gets a precise reason (no such code / used
+  // up / expired); the batch itself is checked again by the rules.
+  function redeemInvite(raw) {
+    var B = window.Backend, u = B && B.user;
+    if (!u || access.busy || access.uid !== u.uid) return;
+    var code = normalizeInviteCode(raw);
+    access.code = String(raw || "").trim().toUpperCase().slice(0, 24);
+    if (!code) { access.error = INVITE_ERR.format; rerender(); return; }
+    access.code = code; access.error = ""; access.busy = true;
+    if (code !== pendingInvite()) setPendingInvite(code, "typed");
+    rerender();
+    function reason(inv) { var st = inviteStatus(inv, Date.now()); return st === "ok" ? null : st; }
+    B.getInvite(code).then(function (inv) {
+      var why = reason(inv);
+      if (why) throw { inviteStatus: why };
+      return B.redeemInvite(u.uid, code).catch(function (e) {
+        // Lost a race for the last seat (or it expired meanwhile): say which.
+        return B.getInvite(code).then(function (again) { var w2 = reason(again); throw w2 ? { inviteStatus: w2 } : e; }, function () { throw e; });
+      });
+    }).then(function () {
+      if (B.user !== u) return;
+      access.busy = false; access.status = "member"; access.error = "";
+      store.memberUid = u.uid; save(); clearPendingInvite();
+      syncPosts(); syncReplies(); syncMarks();
+      toast("You\u2019re in! Welcome to " + BRAND.name + " \ud83d\udc9b");
+      return routeByProfile(u);
+    }).catch(function (e) {
+      access.busy = false;
+      if (e && e.inviteStatus) access.error = INVITE_ERR[e.inviteStatus];
+      else { console.error("MomSakhi: couldn't redeem invite", e); access.error = "Couldn\u2019t use this code yet (" + errCode(e) + "). Please try again."; }
+      if (gateOn()) render(true);
+    });
+  }
+  function autoRedeem() {
+    var code = pendingInvite();
+    if (!code || access.autoTried || access.status !== "none") return;
+    access.autoTried = true;
+    redeemInvite(code);
   }
   function signInWithGoogle(account, btn) {
     if (window.Backend && window.Backend.isReal) {
@@ -1832,6 +2111,27 @@
         break;
       }
       case "soon": toast("Coming soon in the real app ✨"); break;
+      case "invite-redeem": { var ic = $("#invite-code"); redeemInvite(ic ? ic.value : access.code); break; }
+      case "invite-create": createInviteFromForm(el); break;
+      case "invite-copy": copyInvite(el.getAttribute("data-code")); break;
+      case "invite-share": {
+        var shc = el.getAttribute("data-code");
+        if (navigator.share) navigator.share({ title: BRAND.name, text: "You\u2019re invited to " + BRAND.name + " \u2014 " + BRAND.tagline + " Your invite code: " + shc, url: inviteLink(shc) }).catch(function () { /* closed */ });
+        break;
+      }
+      case "invite-disable": {
+        var dc = el.getAttribute("data-code"), du = parseInt(el.getAttribute("data-uses"), 10) || 0;
+        busy(el);
+        window.Backend.disableInvite(dc, du).then(function () { toast("Code disabled · " + dc); }).catch(failToast("disable the code", el));
+        break;
+      }
+      case "invite-delete": {
+        var xc = el.getAttribute("data-code");
+        if (!window.confirm("Delete invite code " + xc + "? Moms who already joined with it stay members.")) break;
+        busy(el);
+        window.Backend.deleteInvite(xc).then(function () { toast("Code deleted · " + xc); }).catch(failToast("delete the code", el));
+        break;
+      }
       case "reset": localStorage.removeItem(STORE_KEY); store = freshStore(); askDraft = { circle: null, title: "", body: "", anon: null, nudge: null }; go("#welcome"); toast("Demo reset"); break;
     }
   }
@@ -1842,6 +2142,9 @@
     if (k === "nick") {
       store.profile.nickname = v.trim() ? v.trim() : ""; save();
       var b = $("#about-continue"); if (b) b.disabled = !v.trim();
+    } else if (k === "invite-code") {
+      access.code = v.trim().toUpperCase().slice(0, 24);
+      var jb = $("#invite-submit"); if (jb && !access.busy) jb.disabled = !v.trim();
     } else if (k === "nick-edit") {
       var nb = $("#sheet-nick-save"); if (nb) nb.disabled = !v.trim();
     } else if (k === "ask-title" || k === "ask-body") {
@@ -1861,6 +2164,7 @@
   function onKey(e) {
     if (e.key === "Escape") closeSheet();
     if (e.key === "Enter" && !e.shiftKey && e.target.id === "chat-text") { e.preventDefault(); $("#chat-send").click(); }
+    if (e.key === "Enter" && e.target.id === "invite-code") { e.preventDefault(); var isb = $("#invite-submit"); if (isb && !isb.disabled) isb.click(); }
     if (e.key === "Enter" && e.target.id === "sheet-nick") { e.preventDefault(); var nsb = $("#sheet-nick-save"); if (nsb && !nsb.disabled) nsb.click(); }
     if (e.key === "Enter" && e.target.getAttribute && e.target.getAttribute("data-city-input")) {
       e.preventDefault();
@@ -1941,7 +2245,7 @@
     B._currentReplies = [];
     live.repliesDead = false;
     live.repliesSig = null;
-    if (r.name !== "q" || !r.arg || !B.user) return;
+    if (r.name !== "q" || !r.arg || !B.user || !hasAccess()) return;
     B._unsubReplies = B.listenReplies(r.arg, function(reps) {
       live.retry = 0;
       var sig = contentSig(reps), same = sig === live.repliesSig;
@@ -1957,7 +2261,7 @@
     var B = window.Backend;
     if (B._unsubMarks) { B._unsubMarks(); B._unsubMarks = null; }
     live.marksDead = false;
-    if (!B.user || !B.listenMyReactions) return;
+    if (!B.user || !B.listenMyReactions || !hasAccess()) return;
     var uid = B.user.uid;
     B._unsubMarks = B.listenMyReactions(uid, function (mine) {
       live.retry = 0;
@@ -2003,7 +2307,8 @@
     var B = window.Backend;
     if (modState.unsub) { modState.unsub(); modState.unsub = null; }
     if (modState.unsubFb) { modState.unsubFb(); modState.unsubFb = null; }
-    modState.isMod = false; modState.reports = []; modState.postCache = {}; modState.fetching = {}; modState.feedback = [];
+    if (modState.unsubInv) { modState.unsubInv(); modState.unsubInv = null; }
+    modState.isMod = false; modState.reports = []; modState.postCache = {}; modState.fetching = {}; modState.feedback = []; modState.invites = [];
     if (!u || !B || !B.checkModerator) return;
     B.checkModerator(u.uid).then(function (isMod) {
       if (!isMod || !B.user || B.user.uid !== u.uid) return;
@@ -2016,6 +2321,10 @@
         modState.feedback = items;
         if (parseHash().name === "mod") rerender();
       }, function (e) { console.warn("MomSakhi: couldn't load feedback (rules not published yet?)", e); });
+      if (B.listenInvites) modState.unsubInv = B.listenInvites(function (items) {
+        modState.invites = items;
+        if (parseHash().name === "mod") rerender();
+      }, function (e) { console.warn("MomSakhi: couldn't load invite codes (rules not published yet?)", e); });
       var n2 = parseHash().name; if (n2 === "mod" || n2 === "me") rerender();
     }).catch(function (e) { console.warn("MomSakhi: moderator check failed (treated as not a moderator)", e); });
   }
@@ -2024,7 +2333,7 @@
     if (B._unsubPosts) { B._unsubPosts(); B._unsubPosts = null; }
     live.postsDead = false;
     live.postsSig = null;
-    if (!B.user) { B.posts = []; return; }
+    if (!B.user || !hasAccess()) { B.posts = []; return; }
     B._unsubPosts = B.listenPosts("all", function(posts) {
       live.retry = 0;
       var r = parseHash();
@@ -2086,21 +2395,26 @@
           window.Backend.onAuth(function(u) {
             window.Backend.user = u;
             resetReactions();
-            syncPosts();
-            syncReplies();
-            syncMarks();
             syncModerator(u);
-            if (u) {
-               window.Backend.getProfile(u.uid).then(function(p) {
-                 if (p) { applyProfile(p); store.onboarded = true; save(); }
-                 render();
-               }).catch(function (e) {
-                 failToast("load your profile", null)(e);
-                 render();
-               });
-            } else {
-               render();
-            }
+            // Closed beta: listeners and the profile read wait for the membership
+            // check, except for a uid we already know is a member (no gate flash).
+            var cached = !!(u && store.memberUid === u.uid);
+            if (!u) access = freshAccess();
+            if (!u || cached) { syncPosts(); syncReplies(); syncMarks(); }
+            if (!u) { render(); return; }
+            if (!cached) render();  // "Checking your invite…"
+            accessFor(u).then(function (ok) {
+              if (window.Backend.user !== u) return;
+              if (!ok) { syncPosts(); syncReplies(); syncMarks(); render(); autoRedeem(); return; }
+              if (!cached) { syncPosts(); syncReplies(); syncMarks(); }
+              window.Backend.getProfile(u.uid).then(function(p) {
+                if (p) { applyProfile(p); store.onboarded = true; save(); }
+                render();
+              }).catch(function (e) {
+                failToast("load your profile", null)(e);
+                render();
+              });
+            });
           });
         } else {
           showDemoLabel();
@@ -2127,5 +2441,8 @@
     cleanNick: cleanNick, saveNickname: saveNickname, nickname: function () { return store.profile.nickname; },
     inAppBrowser: inAppBrowser, isWebviewAuthError: isWebviewAuthError, appLink: appLink, chromeIntentUrl: chromeIntentUrl,
     showSignInBlocked: showSignInBlocked,
+    newInviteCode: newInviteCode, normalizeInviteCode: normalizeInviteCode, extractInvite: extractInvite,
+    inviteStatus: inviteStatus, inviteLink: inviteLink, pendingInvite: pendingInvite, gateOn: gateOn,
+    INVITE_LINK: INVITE_LINK, INVITE_ERR: INVITE_ERR, _access: function () { return access; }, _modState: modState,
     city: function () { return store.city; } };
 })();

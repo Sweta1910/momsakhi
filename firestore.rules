@@ -8,6 +8,53 @@ service cloud.firestore {
              exists(/databases/$(database)/documents/moderators/$(request.auth.uid));
     }
 
+    // ---- Closed beta: invite codes (added 2026-10-12).
+    // A mom is a MEMBER once /members/{uid} {code, joinedAt} exists. It can only be
+    // created in ONE batch together with a +1 on /invites/{code}.uses (see
+    // redeemedWith / redeemBump), so every member used exactly one seat of a real,
+    // unexpired, not-used-up code. Moderators are always members (no code needed).
+    // Posts, replies, reactions, reports, profiles and anon-author records all need
+    // isMember(): content is private to the beta. Feedback stays open to any
+    // signed-in mom (so "I didn't get a code" can still reach us).
+    function isMember() {
+      return request.auth != null &&
+             (exists(/databases/$(database)/documents/members/$(request.auth.uid)) || isModerator());
+    }
+    // Codes look like SAKHI-7F3KQ9: no 0/O/1/I so they can be read out loud.
+    function validCode(code) { return code is string && code.matches('^SAKHI-[A-HJ-NP-Z2-9]{6}$'); }
+    function inviteOpen(d) {
+      return d.uses < d.maxUses &&
+             (d.get('expiresAt', null) == null || request.time < d.expiresAt);
+    }
+    // Member side: the invite named by the new member doc exists, was open before
+    // this write, and its uses moves by exactly +1 in this same write.
+    function redeemedWith(code) {
+      let inv = /databases/$(database)/documents/invites/$(code);
+      return validCode(code) && exists(inv) && inviteOpen(get(inv).data) &&
+             getAfter(inv).data.uses == get(inv).data.uses + 1;
+    }
+    // Invite side: only `uses` changes, by exactly +1, the code was open, and the
+    // caller's own member doc is born in this same write and names this code.
+    function redeemBump(code) {
+      let m = /databases/$(database)/documents/members/$(request.auth.uid);
+      return request.auth != null &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uses']) &&
+             request.resource.data.uses == resource.data.uses + 1 &&
+             inviteOpen(resource.data) &&
+             !exists(m) && existsAfter(m) && getAfter(m).data.code == code;
+    }
+    // A moderator's new code: exact keys, 1..50 seats, starts unused, stamped as hers.
+    function validNewInvite(code) {
+      let d = request.resource.data;
+      return validCode(code) &&
+             d.keys().hasOnly(['maxUses', 'uses', 'createdBy', 'createdAt', 'expiresAt', 'note']) &&
+             d.keys().hasAll(['maxUses', 'uses', 'createdBy', 'createdAt']) &&
+             d.maxUses is int && d.maxUses >= 1 && d.maxUses <= 50 &&
+             d.uses == 0 && d.createdBy == request.auth.uid && d.createdAt == request.time &&
+             (d.get('expiresAt', null) == null || d.expiresAt is timestamp) &&
+             (d.get('note', null) == null || (d.note is string && d.note.size() <= 80));
+    }
+
     // ---- Reactions (hug / been there / helpful), added 2026-10-09.
     // Two halves written in ONE batch by Backend.setReaction() in web/backend.js:
     //   1. a marker /userReactions/{uid}/marks/{markId} meaning "this mom pressed
@@ -87,28 +134,60 @@ service cloud.firestore {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if false;
     }
+
+    // ---- Invite codes. A signed-in non-member may `get` ONE invite by its exact
+    // code (to validate what she typed / the ?invite= link) but can never `list`
+    // them, so codes can't be enumerated. Only moderators list, create, edit
+    // (seats / note / expiry; "disable" = maxUses := uses) or delete them. The
+    // only non-moderator write is the +1 redemption bump (redeemBump).
+    match /invites/{code} {
+      allow get: if request.auth != null;
+      allow list: if isModerator();
+      allow create: if isModerator() && validNewInvite(code);
+      allow update: if (isModerator() &&
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['maxUses', 'note', 'expiresAt']) &&
+                        request.resource.data.maxUses is int &&
+                        request.resource.data.maxUses >= resource.data.uses &&
+                        request.resource.data.maxUses <= 50) ||
+                       redeemBump(code);
+      allow delete: if isModerator();
+    }
+
+    // Membership: she may read only her own doc (the app's gate check). Created only
+    // by redeeming a code (redeemedWith); never edited by a client. Moderators can
+    // read any (support) and delete one (revoke beta access).
+    match /members/{uid} {
+      allow get: if request.auth != null && (request.auth.uid == uid || isModerator());
+      allow create: if request.auth != null && request.auth.uid == uid &&
+                    request.resource.data.keys().hasOnly(['code', 'joinedAt']) &&
+                    request.resource.data.joinedAt == request.time &&
+                    redeemedWith(request.resource.data.code);
+      allow delete: if isModerator();
+    }
     
     // Owner-only: a profile holds her Google fullName + email, and the app only ever
     // reads the signed-in mom's own doc (getProfile(u.uid)). The Privacy & Terms page
     // promises other moms never see her email, so other moms must not read this.
+    // 2026-10-12 closed beta: members only (a non-member never gets this far).
     match /profiles/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && request.auth.uid == uid && isMember();
+      allow write: if request.auth != null && request.auth.uid == uid && isMember();
     }
 
     // A mom's own reaction markers: only she can read them (so her pressed state is
     // right on every device) and only she can add/remove them -- never edit one.
     match /userReactions/{uid}/marks/{markId} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow create: if request.auth != null && request.auth.uid == uid &&
+      allow read: if request.auth != null && request.auth.uid == uid && isMember();
+      allow create: if request.auth != null && request.auth.uid == uid && isMember() &&
                     validMark(markId, request.resource.data) &&
                     counterMoved(request.resource.data, 1);
-      allow delete: if request.auth != null && request.auth.uid == uid &&
+      allow delete: if request.auth != null && request.auth.uid == uid && isMember() &&
                     counterMoved(resource.data, -1);
     }
     
+    // 2026-10-12 closed beta: every read and write below also needs isMember().
     match /posts/{postId} {
-      allow read: if request.auth != null;
+      allow read: if isMember();
       // Anonymous posts must not carry an author name, enforced here as well as in
       // the client, so a modified client can't leak a mom's name on an anon post.
       // 2026-10-12: they must not carry her uid either (any signed-in mom can read
@@ -117,7 +196,7 @@ service cloud.firestore {
       // /postAuthors/{postId} {uid} (moderator-only, see below). Named posts keep uid.
       // Only known keys, so no other per-mom id can ride along on a post.
       // New posts start with no reaction counts (they only move via reactionBump).
-      allow create: if request.auth != null &&
+      allow create: if isMember() &&
                     request.resource.data.keys().hasOnly(['uid', 'author', 'anon', 'circle', 'title', 'body', 'meta', 'hue', 'createdAt', 'replyCount']) &&
                     request.resource.data.body is string &&
                     request.resource.data.body.size() <= 4000 &&
@@ -133,18 +212,18 @@ service cloud.firestore {
       // Any signed-in mom may bump replyCount by exactly +1 when she replies
       // (client uses updateDoc(increment(1))); no other field may change.
       // The other allowed update: one reaction count +-1 together with her marker.
-      allow update: if (request.auth != null &&
+      allow update: if isMember() && ((
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['replyCount']) &&
                     request.resource.data.replyCount == resource.data.get('replyCount', 0) + 1) ||
-                    reactionBump(postId);
+                    reactionBump(postId));
       // The author may delete her own post; a moderator may delete any post. For an
       // anon post "her own" is proven by the private author record.
-      allow delete: if request.auth != null && ((isModerator() || resource.data.get('uid', null) == request.auth.uid) ||
+      allow delete: if isMember() && ((isModerator() || resource.data.get('uid', null) == request.auth.uid) ||
                     isAnonAuthor(/databases/$(database)/documents/postAuthors/$(postId)));
 
       match /replies/{replyId} {
-        allow read: if request.auth != null;
-        allow create: if request.auth != null &&
+        allow read: if isMember();
+        allow create: if isMember() &&
                       request.resource.data.keys().hasOnly(['uid', 'author', 'anon', 'body', 'hue', 'createdAt']) &&
                       request.resource.data.body is string &&
                       request.resource.data.body.size() <= 4000 &&
@@ -155,8 +234,8 @@ service cloud.firestore {
                         : request.resource.data.uid == request.auth.uid) &&
                       !('reactions' in request.resource.data);
         // Replies are never edited; the only update is one reaction count +-1.
-        allow update: if reactionBump(postId + '_' + replyId);
-        allow delete: if request.auth != null && ((isModerator() || resource.data.get('uid', null) == request.auth.uid) ||
+        allow update: if isMember() && reactionBump(postId + '_' + replyId);
+        allow delete: if isMember() && ((isModerator() || resource.data.get('uid', null) == request.auth.uid) ||
                       isAnonAuthor(/databases/$(database)/documents/postAuthors/$(postId)/replies/$(replyId)));
       }
     }
@@ -171,13 +250,13 @@ service cloud.firestore {
     // it once her post is gone; moderators may delete it. (Helpers authorRecordOk /
     // isAnonAuthor are defined at the top, next to the other helpers.)
     match /postAuthors/{postId} {
-      allow create: if authorRecordOk(/databases/$(database)/documents/posts/$(postId));
+      allow create: if isMember() && authorRecordOk(/databases/$(database)/documents/posts/$(postId));
       allow read: if isModerator() || (request.auth != null && resource.data.uid == request.auth.uid);
       allow delete: if isModerator() || (request.auth != null && resource.data.uid == request.auth.uid &&
                     !existsAfter(/databases/$(database)/documents/posts/$(postId)));
 
       match /replies/{replyId} {
-        allow create: if authorRecordOk(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId));
+        allow create: if isMember() && authorRecordOk(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId));
         allow read: if isModerator() || (request.auth != null && resource.data.uid == request.auth.uid);
         allow delete: if isModerator() || (request.auth != null && resource.data.uid == request.auth.uid &&
                       !existsAfter(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId)));
@@ -187,12 +266,13 @@ service cloud.firestore {
     // Reports: any signed-in mom can file one (the reporter can't be forged); only
     // moderators can read them or delete them (dismiss / clean up after a removal).
     match /reports/{reportId} {
-      allow create: if request.auth != null &&
+      allow create: if isMember() &&
                     request.resource.data.reporterUid == request.auth.uid;
       allow read, delete: if isModerator();
     }
 
-    // Feedback ("Send feedback" button): any signed-in mom can send a note as herself
+    // Feedback ("Send feedback" button): NOT behind the beta gate (2026-10-12), so a
+    // signed-in mom without a code can still write to us. Any signed-in mom can send a note as herself
     // (uid can't be spoofed), with exactly these keys, 1-1000 chars of text and a
     // known kind (or none). Nobody but a moderator can read it; no one can edit or
     // delete it from the app (moderators clean up in the Firebase console).

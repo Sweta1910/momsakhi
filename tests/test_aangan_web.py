@@ -318,7 +318,8 @@ class TestData(unittest.TestCase):
         # Post/chat pages (tab: null) must not get the centred welcome layout,
         # which squashed a post + replies into one row on laptops.
         js = _read("app.js")
-        self.assertIn('var isOnboarding = r.name === "welcome" || r.name.indexOf("onboard/") === 0;', js)
+        # 2026-10-12: the closed-beta invite screen uses the same centred layout.
+        self.assertIn('var isOnboarding = r.name === "welcome" || r.name.indexOf("onboard/") === 0 || r.name === "invite";', js)
         self.assertIn('app.classList.toggle("onboarding-mode", isOnboarding)', js)
         self.assertNotIn('app.classList.toggle("onboarding-mode", isPreAuth)', js)
 
@@ -424,9 +425,10 @@ class TestRealModeHardening(unittest.TestCase):
 
     def test_listeners_have_error_callbacks_and_wait_for_sign_in(self):
         # posts, replies, reports: every listener has an error callback.
-        self.assertEqual(self.backend.count("onSnapshot(q, function(snap)"), 4)  # + feedback (moderators)
-        self.assertEqual(self.backend.count("if (onError) onError(e);"), 5)  # posts, replies, reports, my reactions, feedback (mods)
-        self.assertIn("if (!B.user) { B.posts = []; return; }", self.app)
+        self.assertEqual(self.backend.count("onSnapshot(q, function(snap)"), 5)  # + feedback, invites (moderators)
+        self.assertEqual(self.backend.count("if (onError) onError(e);"), 6)  # posts, replies, reports, my reactions, feedback, invites (mods)
+        # 2026-10-12 closed beta: no listener for a signed-in non-member either.
+        self.assertIn("if (!B.user || !hasAccess()) { B.posts = []; return; }", self.app)
 
     def test_posts_and_replies_listeners_self_heal_without_polling(self):
         # A dead onSnapshot listener used to freeze the feed until reload.
@@ -468,9 +470,9 @@ class TestRealModeHardening(unittest.TestCase):
         # In real mode, copy is warm and honest: no claims that data is fictional.
         # Demo mode retains the prototype/fictional notices.
         # 1. Welcome screen
-        self.assertIn('"Real moms, real posts · sign in with Google to join"', self.app)
+        self.assertIn('"Invite-only during the beta · sign in with Google, then enter your invite code"', self.app)
         self.assertIn('"Prototype · all people, posts and places are fictional demo data"', self.app)
-        self.assertIn('(isRealMode() ? "Real moms, real posts · sign in with Google to join" : "Prototype · all people, posts and places are fictional demo data")', self.app)
+        self.assertIn('(isRealMode() ? "Invite-only during the beta · sign in with Google, then enter your invite code" : "Prototype · all people, posts and places are fictional demo data")', self.app)
 
         # 2. Me tab footer note
         self.assertIn('esc(BRAND.name) + (isRealMode() ? " · v0.1 · beta" : " prototype · v0.1 · all data is fictional")', self.app)
@@ -527,7 +529,7 @@ function runMode(isReal) {
     if (welcome.includes('fictional') || welcome.includes('demo data') || welcome.includes('Prototype')) {
       throw new Error('Real mode welcome contains fictional/demo text: ' + welcome);
     }
-    if (!welcome.includes('Real moms, real posts · sign in with Google to join')) {
+    if (!welcome.includes('Invite-only during the beta · sign in with Google, then enter your invite code')) {
       throw new Error('Real mode welcome missing real-moms text: ' + welcome);
     }
     if (me.includes('fictional') || me.includes('all data is fictional')) {
@@ -726,8 +728,9 @@ class TestOptionalCity(unittest.TestCase):
     def test_profile_rules_allow_owner_to_write_city_unchanged(self):
         # City rides on /profiles/{uid}; the owner-write rule permits it. Since
         # 2026-10-09 reads are owner-only too (profiles hold fullName + email).
-        self.assertIn("match /profiles/{uid} {\n      allow read: if request.auth != null && request.auth.uid == uid;\n"
-                      "      allow write: if request.auth != null && request.auth.uid == uid;", self.rules)
+        # 2026-10-12 closed beta: owner-only AND members-only.
+        self.assertIn("match /profiles/{uid} {\n      allow read: if request.auth != null && request.auth.uid == uid && isMember();\n"
+                      "      allow write: if request.auth != null && request.auth.uid == uid && isMember();", self.rules)
 
     def test_css_for_gate_and_strip(self):
         for sel in (".city-gate", ".city-strip", ".city-field"):
@@ -852,8 +855,9 @@ class TestEditNickname(unittest.TestCase):
         self.assertIn('failToast("save your nickname", btn)', body)
 
     def test_profile_rules_allow_owner_nickname_write_unchanged(self):
-        self.assertIn("match /profiles/{uid} {\n      allow read: if request.auth != null && request.auth.uid == uid;\n"
-                      "      allow write: if request.auth != null && request.auth.uid == uid;", self.rules)
+        # 2026-10-12 closed beta: owner-only AND members-only.
+        self.assertIn("match /profiles/{uid} {\n      allow read: if request.auth != null && request.auth.uid == uid && isMember();\n"
+                      "      allow write: if request.auth != null && request.auth.uid == uid && isMember();", self.rules)
 
     def test_rendered_behaviour_demo_and_real(self):
         node = _node()
@@ -959,7 +963,7 @@ class TestSharedReactions(unittest.TestCase):
         self.assertIn("counterMoved(request.resource.data, 1)", r)
         self.assertIn("counterMoved(resource.data, -1)", r)
         self.assertIn("/userReactions/$(request.auth.uid)/marks/", r)  # never someone else's marker
-        self.assertIn("allow update: if reactionBump(postId + '_' + replyId);", r)
+        self.assertIn("allow update: if isMember() && reactionBump(postId + '_' + replyId);", r)
         self.assertNotIn("toList()", r)  # not a Set method; the emulator warns and the rule never matches
         # New posts/replies can't be created with pre-stuffed counts.
         self.assertEqual(r.count("!('reactions' in request.resource.data)"), 2)
@@ -1771,3 +1775,275 @@ console.log('OK');
         shell = re.search(r"var SHELL = \[(.*?)\];", self.sw, re.S).group(1)
         self.assertIn('"privacy/"', shell)
         self.assertNotIn("a1b2c3d", self.sw + self.index, "placeholder cache version still in place")
+
+
+class TestInviteCodes(unittest.TestCase):
+    """2026-10-12 closed beta: invite codes.
+    /invites/{code} {maxUses, uses, createdBy, createdAt, expiresAt?, note?} and
+    /members/{uid} {code, joinedAt}; redemption is ONE batch (member doc + uses +1),
+    and posts/replies/reactions/reports/profiles/postAuthors-create need isMember().
+    Live proof against the emulator: ~/liquid/state/scratch/aangan_e2e/invite_e2e.py."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = _read("app.js")
+        cls.backend = _read("backend.js")
+        with open(os.path.join(APP_DIR, "firestore.rules"), encoding="utf-8") as f:
+            cls.rules = f.read()
+        with open(os.path.join(APP_DIR, "privacy", "index.html"), encoding="utf-8") as f:
+            cls.static_privacy = f.read()
+
+    def _node_run(self, body):
+        node = _node()
+        if not node:
+            self.skipTest("node not installed")
+        harness = r"""
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const webDir = %r;
+function ok(c, m) { if (!c) throw new Error(m); }
+// Boots data.js + app.js in a fake window. Returns {w, ls, replaced}.
+function boot(opts) {
+  const ls = opts.ls || { store: {}, getItem(k) { return k in this.store ? this.store[k] : null; }, setItem(k, v) { this.store[k] = String(v); }, removeItem(k) { delete this.store[k]; } };
+  if (opts.seed) ls.store['aangan.demo.v1'] = JSON.stringify(opts.seed);
+  const replaced = [];
+  const w = { location: { hash: opts.hash || '', search: opts.search || '', pathname: '/', hostname: 'localhost' }, localStorage: ls,
+    history: { replaceState(a, b, url) { replaced.push(url); } },
+    document: { addEventListener() {}, querySelector() { return null; }, getElementById() { return null; }, body: { setAttribute() {} } },
+    navigator: opts.share ? { share() { return Promise.resolve(); } } : {},
+    crypto: require('crypto').webcrypto,
+    Backend: { isReal: !!opts.real, user: opts.user || null }, console, setTimeout, clearTimeout };
+  w.window = w; vm.runInContext(fs.readFileSync(path.join(webDir, 'data.js'), 'utf8'), vm.createContext(w));
+  vm.runInContext(fs.readFileSync(path.join(webDir, 'app.js'), 'utf8'), w);
+  return { w, ls, replaced };
+}
+""" % WEB_DIR + body + "\nconsole.log('OK');\n"
+        r = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("OK", r.stdout)
+
+    # ---- code format
+    def test_code_format_and_forgiving_input(self):
+        self._node_run(r"""
+const A = boot({}).w.AANGAN;
+const seen = new Set();
+for (let i = 0; i < 400; i++) {
+  const c = A.newInviteCode();
+  ok(/^SAKHI-[A-HJ-NP-Z2-9]{6}$/.test(c), 'bad code ' + c);
+  ok(!/[01OI]/.test(c.slice(6)), 'ambiguous char in ' + c);
+  seen.add(c);
+}
+ok(seen.size > 390, 'codes not random enough: ' + seen.size);
+const N = A.normalizeInviteCode;
+ok(N('sakhi-7f3kq9') === 'SAKHI-7F3KQ9', 'lowercase');
+ok(N('  7F3K Q9 ') === 'SAKHI-7F3KQ9', 'no prefix + spaces');
+ok(N('SAKHI7F3KQ9') === 'SAKHI-7F3KQ9', 'no dash');
+ok(N('SAKHI-7F3K') === '', 'too short accepted');
+ok(N('SAKHI-0O1I23') === '', '0/O/1/I accepted');
+ok(N('') === '' && N(null) === '' && N('SAKHI-7F3KQ9/../x') === '', 'junk accepted');
+""")
+        # The app's regex and the rules' regex are the same alphabet.
+        self.assertIn("var INVITE_RE = /^SAKHI-[A-HJ-NP-Z2-9]{6}$/;", self.app)
+        self.assertIn("code.matches('^SAKHI-[A-HJ-NP-Z2-9]{6}$')", self.rules)
+        self.assertIn('var INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";', self.app)
+        self.assertIn("crypto", self.app[self.app.index("function newInviteCode()"):self.app.index("function normalizeInviteCode(")])
+
+    # ---- ?invite= link: captured, stripped from the URL, kept through sign-in
+    def test_invite_link_prefill_survives_redirect_sign_in(self):
+        self._node_run(r"""
+const X = boot({}).w.AANGAN.extractInvite;
+let x = X('?emu=1&invite=sakhi-7f3kq9', '#welcome');
+ok(x.code === 'SAKHI-7F3KQ9' && x.search === '?emu=1' && x.hash === '#welcome', 'search: ' + JSON.stringify(x));
+x = X('', '#home?invite=SAKHI-7F3KQ9');
+ok(x.code === 'SAKHI-7F3KQ9' && x.search === '' && x.hash === '#home', 'hash: ' + JSON.stringify(x));
+x = X('', '#?invite=SAKHI-7F3KQ9&a=1');
+ok(x.code === 'SAKHI-7F3KQ9' && x.hash === '#?a=1', 'bare hash: ' + JSON.stringify(x));
+x = X('?a=1', '#q/abc');
+ok(x.raw === null && x.code === '' && x.search === '?a=1' && x.hash === '#q/abc', 'no invite: ' + JSON.stringify(x));
+x = X('?invite=hello', '');
+ok(x.raw === 'hello' && x.code === '', 'malformed kept raw: ' + JSON.stringify(x));
+
+// 1. Signed out, arrives from the link: stored + URL cleaned + welcome tells her.
+const first = boot({ real: true, search: '?emu=1&invite=sakhi-7f3kq9', hash: '#welcome' });
+ok(first.ls.store['momsakhi.invite'] === 'SAKHI-7F3KQ9', 'not stored: ' + JSON.stringify(first.ls.store));
+ok(first.replaced.length === 1 && first.replaced[0] === '/?emu=1#welcome', 'URL not cleaned: ' + first.replaced);
+const wel = first.w.AANGAN.V.welcome().html;
+ok(wel.includes('id="welcome-invite"') && wel.includes('SAKHI-7F3KQ9'), 'welcome banner: ' + wel);
+// 2. Google redirect round trip: the page reloads WITHOUT the param, same localStorage.
+const back = boot({ real: true, ls: first.ls, hash: '', user: { uid: 'u1', email: 'mom@example.com' } });
+ok(back.replaced.length === 0, 'nothing to strip on return');
+ok(back.w.AANGAN.pendingInvite() === 'SAKHI-7F3KQ9', 'lost through redirect');
+const a = back.w.AANGAN._access(); a.uid = 'u1'; a.status = 'none';
+const inv = back.w.AANGAN.V.invite().html;
+ok(inv.includes('id="invite-code"') && inv.includes('value="SAKHI-7F3KQ9"'), 'not prefilled: ' + inv);
+ok(first.ls.store['momsakhi.invite.src'] === 'link' && inv.includes('id="invite-from-link"'), 'link source lost through redirect: ' + inv);
+ok(!inv.includes('id="invite-submit" disabled'), 'Join disabled with a prefilled code');
+// Demo mode: no banner even with a pending code.
+ok(!boot({ ls: first.ls }).w.AANGAN.V.welcome().html.includes('welcome-invite'), 'demo shows invite banner');
+""")
+        # Auto-submit once after sign-in, and only for a non-member.
+        body = self.app[self.app.index("function autoRedeem()"):]
+        body = body[:body.index("\n  }\n")]
+        self.assertIn("access.autoTried = true;", body)
+        self.assertIn('access.status !== "none"', body)
+        self.assertIn("autoRedeem(); return;", self.app)
+
+    # ---- gate in real mode
+    def test_gate_only_in_real_mode_for_signed_in_non_members(self):
+        self._node_run(r"""
+const u = { uid: 'u1', email: 'mom@example.com' };
+// Demo: never gated.
+ok(boot({ user: u }).w.AANGAN.gateOn() === false, 'demo gated');
+// Real, signed out: welcome, not the gate.
+ok(boot({ real: true }).w.AANGAN.gateOn() === false, 'signed-out gated');
+// Real, signed in, unchecked, not cached: gated, with a "checking" screen.
+let b = boot({ real: true, user: u }), A = b.w.AANGAN;
+ok(A.gateOn() === true, 'unchecked non-member not gated');
+ok(A.V.invite().html.includes('id="invite-checking"'), 'no checking state');
+const acc = A._access(); acc.uid = 'u1'; acc.status = 'none';
+ok(A.gateOn() === true, 'non-member not gated');
+acc.error = A.INVITE_ERR.used;
+let h = A.V.invite().html;
+ok(h.includes('id="invite-error"') && h.includes('already been used up'), 'error state: ' + h);
+ok(h.includes('data-act="feedback"') && h.includes('data-act="sign-out"') && h.includes('href="#privacy"'), 'gate exits: ' + h);
+ok(h.includes('invite-only during the beta') && h.includes('isn\u2019t a check of who you are'), 'gate copy: ' + h);
+acc.status = 'member';
+ok(A.gateOn() === false, 'member gated');
+// A known member (cached uid) never sees a gate flash while the check runs.
+b = boot({ real: true, user: u, seed: { onboarded: true, memberUid: 'u1' } });
+ok(b.w.AANGAN.gateOn() === false, 'cached member gated');
+// ...but the cache is per uid.
+ok(boot({ real: true, user: { uid: 'u2' }, seed: { memberUid: 'u1' } }).w.AANGAN.gateOn() === true, 'cache leaked to another uid');
+// Error messages exist for every case.
+for (const k of ['format', 'missing', 'used', 'expired']) ok(A.INVITE_ERR[k] && A.INVITE_ERR[k].length > 20, 'no error text for ' + k);
+const S = A.inviteStatus, now = 1e12;
+ok(S(null, now) === 'missing' && S({ uses: 1, maxUses: 1 }, now) === 'used' && S({ uses: 0, maxUses: 1, expiresAtMs: now - 1 }, now) === 'expired' &&
+   S({ uses: 0, maxUses: 2, expiresAtMs: now + 1000 }, now) === 'ok' && S({ uses: 0, maxUses: 1, expiresAtMs: null }, now) === 'ok', 'inviteStatus');
+""")
+        render = self.app[self.app.index("function render(keepScroll)"):]
+        render = render[:render.index("\n  }\n")]
+        self.assertIn('var GATE_OPEN = ["invite", "privacy", "safety"];', self.app)
+        self.assertIn('if (gated && GATE_OPEN.indexOf(r.name) < 0) r = { name: "invite", arg: null };', render)
+        self.assertIn("if (gated) tabbar.hidden = true;", render)
+        # Listeners and the profile read wait for membership.
+        self.assertIn('if (r.name !== "q" || !r.arg || !B.user || !hasAccess()) return;', self.app)
+        self.assertIn("if (!B.user || !B.listenMyReactions || !hasAccess()) return;", self.app)
+        auth = self.app[self.app.index("window.Backend.onAuth(function(u) {"):]
+        auth = auth[:auth.index("\n          });")]
+        self.assertLess(auth.index("accessFor(u).then"), auth.index("getProfile(u.uid)"))
+        sign_in = self.app[self.app.index("function afterGoogleSignIn(u)"):self.app.index("function routeByProfile(u)")]
+        self.assertIn('if (!ok) { go("#invite"); return; }', sign_in)
+        self.assertNotIn("getProfile", sign_in)
+
+    # ---- moderator UI
+    def test_moderator_invite_codes_section(self):
+        self._node_run(r"""
+const now = Date.now();
+const b = boot({ real: true, user: { uid: 'm1' }, share: true }), A = b.w.AANGAN;
+ok(A.V.mod().html.includes('Moderators only') && !A.V.mod().html.includes('Invite codes'), 'non-mod sees invites');
+A._modState.isMod = true;
+A._modState.invites = [
+  { code: 'SAKHI-7F3KQ9', maxUses: 3, uses: 1, note: 'for Priya', expiresAtMs: null },
+  { code: 'SAKHI-ABCDEF', maxUses: 1, uses: 1, note: null, expiresAtMs: null },
+  { code: 'SAKHI-GHJKMN', maxUses: 5, uses: 0, note: '<b>x</b>', expiresAtMs: now - 1000 }];
+const h = A.V.mod().html;
+for (const s of ['Invite codes', 'id="invite-form"', 'id="inv-max"', 'max="50"', 'value="1"', 'id="inv-note"', 'id="inv-exp"', 'type="date"',
+                 'id="inv-create"', 'data-act="invite-create"', '1 / 3 used', 'for Priya', 'Active', 'No seats left', 'Expired',
+                 'data-act="invite-copy" data-code="SAKHI-7F3KQ9"', 'Copy invite link', 'data-act="invite-share"', 'data-act="invite-delete"'])
+  ok(h.includes(s), 'mod invites missing ' + s + ': ' + h);
+ok(!h.includes('<b>x</b>') && h.includes('&lt;b&gt;x&lt;/b&gt;'), 'note not escaped');
+ok((h.match(/data-act="invite-disable"/g) || []).length === 1 && h.includes('data-act="invite-disable" data-code="SAKHI-7F3KQ9" data-uses="1"'), 'disable only on active');
+ok(A.inviteLink('SAKHI-7F3KQ9') === 'https://sweta1910.github.io/momsakhi/?invite=SAKHI-7F3KQ9', 'link: ' + A.inviteLink('SAKHI-7F3KQ9'));
+// No navigator.share -> no Share button.
+const c = boot({ real: true, user: { uid: 'm1' } }).w.AANGAN; c._modState.isMod = true; c._modState.invites = A._modState.invites;
+ok(!c.V.mod().html.includes('data-act="invite-share"'), 'share without navigator.share');
+// Demo mode: no invite section.
+ok(!boot({}).w.AANGAN.V.mod().html.includes('Invite codes'), 'demo shows invites');
+""")
+        create = self.app[self.app.index("function createInviteFromForm(btn)"):self.app.index("function copyInvite(code)")]
+        self.assertIn("!modState.isMod", create)
+        self.assertIn("n >= 1 && n <= INVITE_MAX_SEATS", create)
+        self.assertIn('failToast("create the code", btn)', create)
+        self.assertIn('var INVITE_LINK = "https://sweta1910.github.io/momsakhi/?invite=";', self.app)
+
+    # ---- backend
+    def test_backend_redeem_is_one_batch(self):
+        i = self.backend.index("Backend.redeemInvite = function")
+        body = self.backend[i:self.backend.index("\n      };", i)]
+        self.assertIn('batch.set(doc(db, "members", uid), { code: code, joinedAt: serverTimestamp() });', body)
+        self.assertIn('batch.update(doc(db, "invites", code), { uses: increment(1) });', body)
+        self.assertEqual(body.count("batch.commit()"), 1)
+        i = self.backend.index("Backend.createInvite = function")
+        body = self.backend[i:self.backend.index("\n      };", i)]
+        self.assertIn("{ maxUses: maxUses, uses: 0, createdBy: uid, createdAt: serverTimestamp() }", body)
+        self.assertIn('setDoc(doc(db, "invites", code), data)', body)
+        self.assertNotIn("merge", body)  # a collision must fail, never overwrite a live code
+        self.assertIn('getDoc(doc(db, "members", uid))', self.backend)
+        self.assertIn('getDoc(doc(db, "invites", code))', self.backend)
+
+    # ---- rules
+    def _block(self, header):
+        i = self.rules.index(header)
+        return self.rules[i:self.rules.index("\n    }", i)]
+
+    def test_rules_invites_members_and_gate(self):
+        r = self.rules
+        inv = self._block("match /invites/{code}")
+        self.assertIn("allow get: if request.auth != null;", inv)
+        self.assertIn("allow list: if isModerator();", inv)
+        self.assertIn("allow create: if isModerator() && validNewInvite(code);", inv)
+        self.assertIn("redeemBump(code)", inv)
+        self.assertIn("allow delete: if isModerator();", inv)
+        self.assertNotIn("allow read", inv)   # `read` would include list
+        self.assertNotIn("allow write", inv)
+        mem = self._block("match /members/{uid}")
+        self.assertIn("redeemedWith(request.resource.data.code)", mem)
+        self.assertIn("request.resource.data.keys().hasOnly(['code', 'joinedAt'])", mem)
+        self.assertIn("request.resource.data.joinedAt == request.time", mem)
+        self.assertNotIn("update", mem)
+        self.assertNotIn("allow list", mem)
+        self.assertNotIn("allow read", mem)
+        bump = r[r.index("function redeemBump(code)"):r.index("function validNewInvite(code)")]
+        for s in ("affectedKeys().hasOnly(['uses'])", "request.resource.data.uses == resource.data.uses + 1",
+                  "inviteOpen(resource.data)", "!exists(m) && existsAfter(m) && getAfter(m).data.code == code"):
+            self.assertIn(s, bump)
+        red = r[r.index("function redeemedWith(code)"):r.index("function redeemBump(code)")]
+        self.assertIn("getAfter(inv).data.uses == get(inv).data.uses + 1", red)
+        self.assertIn("inviteOpen(get(inv).data)", red)
+        opn = r[r.index("function inviteOpen(d)"):r.index("function redeemedWith(code)")]
+        self.assertIn("d.uses < d.maxUses", opn)
+        self.assertIn("request.time < d.expiresAt", opn)
+        new = r[r.index("function validNewInvite(code)"):r.index("// ---- Reactions")]
+        for s in ("d.maxUses >= 1 && d.maxUses <= 50", "d.uses == 0", "d.createdBy == request.auth.uid", "d.note.size() <= 80"):
+            self.assertIn(s, new)
+        self.assertIn("(exists(/databases/$(database)/documents/members/$(request.auth.uid)) || isModerator())", r)
+        # The gate: posts + replies read/create/update/delete, reactions, reports, profiles, postAuthors-create.
+        posts = r[r.index("match /posts/{postId}"):r.index("match /postAuthors/{postId}")]
+        self.assertEqual(posts.count("allow read: if isMember();"), 2)
+        self.assertEqual(posts.count("allow create: if isMember() &&"), 2)
+        self.assertIn("allow update: if isMember() && ((", posts)
+        self.assertEqual(posts.count("allow delete: if isMember() &&"), 2)
+        self.assertNotIn("allow read: if request.auth != null;", posts)
+        self.assertEqual(r.count("allow create: if isMember() && authorRecordOk("), 2)
+        self.assertIn("allow create: if isMember() &&\n                    request.resource.data.reporterUid", r)
+        marks = self._block("match /userReactions/{uid}/marks/{markId}")
+        self.assertEqual(marks.count("isMember()"), 3)
+        # Feedback stays open to any signed-in mom; /moderators self-check stays open.
+        self.assertNotIn("isMember()", self._block("match /feedback/{feedbackId}"))
+        self.assertNotIn("isMember()", self._block("match /moderators/{uid}"))
+
+    # ---- copy
+    def test_welcome_and_privacy_say_invite_only_without_overclaiming(self):
+        self._node_run(r"""
+const real = boot({ real: true }).w.AANGAN, demo = boot({}).w.AANGAN;
+ok(real.V.welcome().html.includes('Invite-only during the beta'), 'real welcome');
+ok(!demo.V.welcome().html.includes('Invite-only'), 'demo welcome claims invite-only');
+const p = real.V.privacy().html;
+ok(p.includes('<b>invite-only</b>') && p.includes('isn\u2019t a check of who you are') && p.includes('which code you used and when you joined'), 'privacy: ' + p);
+ok(!/verif(y|ied) (your|her) identity|verified mom/i.test(p), 'overclaim');
+""")
+        app_text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), self.app)
+        for line in ("is <b>invite-only</b>: you join with an invite code or link from a moderator",
+                     "An invite code only lets you in \u2014 it isn\u2019t a check of who you are.",
+                     "we also note <b>which code you used and when you joined</b>"):
+            self.assertIn(line, self.static_privacy, "static privacy missing: " + line)
+            self.assertIn(line, app_text, "#privacy missing: " + line)
