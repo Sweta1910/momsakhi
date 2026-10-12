@@ -182,6 +182,9 @@
     return list.filter(function (a) { return !(a.author && store.blocked.indexOf(a.author) >= 0); });
   }
   function momStatus(m) { return store.req[m.id] || m.status; }
+  // data.js member counts ("389 moms") are fictional: demo mode only. Real mode
+  // has no membership counts yet, so it never shows a made-up crowd (2026-10-12).
+  function circleCount(c) { return isRealMode() ? "Open to every mom" : c.members + " moms"; }
 
   var ICONS = {
     home: '<path d="M3.5 10.5 12 3.5l8.5 7V19a1.5 1.5 0 0 1-1.5 1.5h-4.5V15h-5v5.5H5A1.5 1.5 0 0 1 3.5 19z"/>',
@@ -560,12 +563,12 @@
       '<p class="sakhi-note"><b>Sakhi</b> (सखी) means a close friend — no judgement, just moms.</p>' +
       "<p>" + esc(BRAND.blurb) + "</p></div>" +
       '<div class="promise">' +
-      promiseRow("🤍", "var(--plum-soft)", "Women-only & verified", "Every member is verified by phone or Google") +
-      promiseRow("🫶", "var(--peach)", "Anonymous when you need it", "Ask anything without your name on it") +
-      promiseRow("📍", "var(--teal-soft)", "Moms near you", "Meetups in your city · add it whenever you like") +
+      promiseRow("🤍", "var(--plum-soft)", "A space for moms", "A moderated community — please keep it kind") +
+      promiseRow("🫶", "var(--peach)", "Anonymous when you need it", "Other moms see \u201cAnonymous mom\u201d instead of your name") +
+      promiseRow("📍", "var(--teal-soft)", "Moms near you", isRealMode() ? "Meetups in your city · coming soon" : "Meetups in your city · add it whenever you like") +
       "</div>" +
       '<div class="welcome-cta">' +
-      '<div class="welcome-cta-header"><h3>Join the circle</h3><p>Women-only · Safe · Verified</p></div>' +
+      '<div class="welcome-cta-header"><h3>Join the circle</h3><p>For moms · Kind · Moderated</p></div>' +
       '<button class="btn btn-google btn-block" data-act="google-signin" id="google-signin">' + googleIcon(18) + "<span>Continue with Google</span></button>" +
       '<div class="auth-divider"><span>or</span></div>' +
       '<button class="btn btn-primary btn-block" data-act="start-phone-onboard" id="get-started">Continue with phone</button>' +
@@ -628,19 +631,22 @@
         '<button class="btn btn-ghost btn-sm" style="margin-top:10px" data-act="verify-phone" id="verify-phone">Send code</button>';
 
     var verifyCard;
+    // 2026-10-12 honesty pass: sign-in proves she owns a Google account / phone
+    // number, NOT that she is a woman or a mom, so no "verified mom" / "women-only"
+    // claims anywhere (the welcome promise, this step, Me, the message policy).
     if (isGoogle) {
-      verifyCard = '<div class="card verify-card"><span class="vi" style="background:#fff;border:1px solid #dadce0">' + googleIcon(22) + '</span><div class="grow"><b>Google account verified</b><span class="tiny">' + esc(store.profile.email || "priya.sharma@gmail.com") + '</span><div class="state"><span class="done-badge">' + icon("check") + "Verified with Google</span></div></div></div>";
+      verifyCard = '<div class="card verify-card"><span class="vi" style="background:#fff;border:1px solid #dadce0">' + googleIcon(22) + '</span><div class="grow"><b>Signed in with Google</b><span class="tiny">' + esc(store.profile.email || "priya.sharma@gmail.com") + '</span><div class="state"><span class="done-badge">' + icon("check") + "Signed in with Google</span></div></div></div>";
     } else {
-      verifyCard = '<div class="card verify-card"><span class="vi">' + icon("phone") + '</span><div class="grow"><b>Verify your phone</b><span class="tiny">One account per number — keeps out fake profiles.</span><div class="state">' + phoneState + "</div></div></div>" +
+      verifyCard = '<div class="card verify-card"><span class="vi">' + icon("phone") + '</span><div class="grow"><b>Verify your phone</b><span class="tiny">One account per person, please.</span><div class="state">' + phoneState + "</div></div></div>" +
         (v.phone ? "" : '<div class="auth-divider" style="margin:14px 0 10px"><span>or</span></div>' +
-          '<button class="btn btn-google btn-block btn-sm" data-act="google-signin" id="verify-google">' + googleIcon(16) + '<span>Verify with Google instead</span></button>');
+          '<button class="btn btn-google btn-block btn-sm" data-act="google-signin" id="verify-google">' + googleIcon(16) + '<span>Sign in with Google instead</span></button>');
     }
 
     var canEnter = isGoogle || v.phone;
     return { tab: null, html:
       '<div class="view">' + obBack("#onboard/about") + '<div class="ob">' + steps(3) +
-      "<h1>Keeping it moms-only</h1>" +
-      '<p class="lead">A quick, private check so this stays a women-only space.</p>' +
+      "<h1>Almost there</h1>" +
+      '<p class="lead">Sign in so your posts stay yours. ' + esc(BRAND.name) + ' is a moderated space for moms — please keep it kind.</p>' +
       verifyCard +
       '<div class="ob-foot"><button class="btn btn-primary btn-block" data-act="finish-onboarding" id="enter-app"' + (canEnter ? "" : " disabled") + ">Enter " + esc(BRAND.name) + "</button>" +
       (isRealMode() ? "" : '<p class="tiny" style="text-align:center;margin-top:10px">Demo: no real data is sent anywhere.</p>') + "</div>" +
@@ -700,7 +706,7 @@
 
   V.home = function () {
     var circles = D.circles.map(function (c) {
-      return '<a class="card circle-card" href="#circle/' + c.id + '" style="text-decoration:none;color:inherit"><span class="ce">' + c.emoji + "</span><b>" + esc(c.name) + "</b><span>" + c.members + " moms</span></a>";
+      return '<a class="card circle-card" href="#circle/' + c.id + '" style="text-decoration:none;color:inherit"><span class="ce">' + c.emoji + "</span><b>" + esc(c.name) + "</b><span>" + circleCount(c) + "</span></a>";
     }).join("");
     var feed = allPosts().map(function (p) { return postCard(p); }).join("");
     return { tab: "home", html:
@@ -720,7 +726,7 @@
     var joined = store.joined[id] !== false;
     return { tab: "home", html:
       '<div class="view"><div class="backbar"><button class="icon-btn" data-act="back" aria-label="Back">' + icon("back") + '</button><span class="title">Circle</span></div>' +
-      '<div class="card circle-hero"><span class="ce">' + c.emoji + '</span><div style="flex:1"><h2>' + esc(c.name) + '</h2><p class="tiny">' + esc(c.desc) + " · " + c.members + ' moms</p></div>' +
+      '<div class="card circle-hero"><span class="ce">' + c.emoji + '</span><div style="flex:1"><h2>' + esc(c.name) + '</h2><p class="tiny">' + esc(c.desc) + (isRealMode() ? "" : " · " + circleCount(c)) + '</p></div>' +
       '<button class="btn btn-sm ' + (joined ? "btn-ghost" : "btn-primary") + '" data-act="join" data-id="' + id + '">' + (joined ? "Joined ✓" : "Join") + "</button></div>" +
       '<div style="padding:0 14px 14px"><a class="btn btn-warm btn-block" href="#ask/' + id + '" style="text-decoration:none">' + icon("plus") + "Ask in this circle</a></div>" +
       '<div class="feed">' + (posts.length ? posts.map(function (p) { return postCard(p); }).join("") : emptyState("🌱", "Be the first to post here", "Your question could help another mom feel less alone.")) + "</div></div>" };
@@ -821,6 +827,14 @@
   var nearbyFilter = null;
   V.nearby = function () {
     if (!hasCity()) return cityGate("nearby", "Moms nearby");
+    // Real mode has no nearby-moms backend yet: an honest "coming soon" for her
+    // city -- never the fictional demo moms (data.js), the sample map, a say-hi
+    // button, or an opt-in toggle that would store nothing (2026-10-12).
+    if (isRealMode()) {
+      return { tab: "nearby", html:
+        '<div class="view"><header class="topbar"><h1>Moms nearby</h1></header>' + cityStrip() +
+        '<div class="mom-list" id="nearby-soon">' + emptyState("🌿", "No moms nearby in " + esc(store.city) + " yet", "Nearby moms is coming soon. Until then nothing about where you are is shown to anyone — share and ask in the circles.") + "</div></div>" };
+    }
     if (!store.nearbyOn) {
       return { tab: "nearby", html:
         '<div class="view"><div class="optin">' +
@@ -859,12 +873,6 @@
     }).join("");
     var fh = nearbyFilter && hood(nearbyFilter);
     var head = '<div class="view"><header class="topbar"><h1>Moms nearby</h1><a class="icon-btn" href="#chats" aria-label="Messages">' + icon("chat") + "</a></header>" + cityStrip();
-    // Real mode has no nearby-moms backend yet: show an honest empty state for her
-    // city rather than the fictional demo moms and sample map.
-    if (isRealMode()) {
-      return { tab: "nearby", html: head +
-        '<div class="mom-list">' + emptyState("🌿", "No moms nearby in " + esc(store.city) + " yet", "You're on the list — as moms in your city turn this on, they'll show up here.") + "</div></div>" };
-    }
     return { tab: "nearby", html: head +
       '<div class="card map-card">' + mapSvg(nearbyFilter) +
       '<div class="map-legend"><span>' + icon("shield") + "Neighbourhoods only · never exact spots</span><span>" + (fh ? '<button class="link" data-act="hood-clear">Show all</button>' : "Tap an area") + "</span></div></div>" +
@@ -886,10 +894,11 @@
       '<p class="muted" style="padding:0 18px 14px;margin-top:-6px;font-size:14px">Small, mom-hosted, in public places in ' + esc(store.city) + ".</p>";
     var host = '<div class="card host-cta"><span style="font-size:28px">🪔</span><div class="grow"><b>Host a meetup</b><span>Stroller walk, chai morning, toy swap — you pick.</span></div><button class="btn btn-ghost btn-sm" data-act="soon">Start</button></div>';
     // Real mode: meetups aren't stored in Firestore yet, so there is nothing real
-    // to list -- never show the fictional demo events to a real mom.
+    // to list -- never show the fictional demo events to a real mom, and no "Host"
+    // button that only says "coming soon" in a toast.
     if (isRealMode()) {
       return { tab: "meetups", html: head +
-        '<div class="events">' + emptyState("🗓️", "No meetups in " + esc(store.city) + " yet", "Be the first to host one — small, public and mom-led.") + "</div>" + host + "</div>" };
+        '<div class="events" id="meetups-soon">' + emptyState("🗓️", "No meetups in " + esc(store.city) + " yet", "Meetups are coming soon — small, public and mom-led.") + "</div></div>" };
     }
     var evs = D.events.filter(function (e) { return meetupsSeg === "all" || store.rsvp[e.id]; });
     var list = evs.map(function (e) {
@@ -909,7 +918,16 @@
   };
 
   var MOCK_REPLIES = ["That sounds lovely 😊", "Haha same here! Toddler life 😅", "Yes! Let's do it. Saturday works for me.", "Aww thank you, that means a lot 💛", "I'll bring the chai ☕"];
+  // Real mode has no chat backend yet. Every mom in data.js (D.moms / D.chats) is
+  // fictional, so a real mom must never see them in Messages or open a chat with
+  // one (2026-10-12: Chats/DMs used to list the demo "accepted" moms in real mode).
+  function chatsSoon() {
+    return { tab: null, html:
+      '<div class="view"><div class="backbar"><button class="icon-btn" data-act="back" aria-label="Back">' + icon("back") + '</button><span class="title">Messages</span></div>' +
+      '<div class="inbox" id="chats-soon">' + emptyState("💬", "Messages are coming soon", "Private chats between moms aren\'t live yet. For now, share and reply in the circles.") + "</div></div>" };
+  }
   V.chat = function (id) {
+    if (isRealMode()) return chatsSoon();
     var m = mom(id);
     if (!m) return V.chats();
     var blocked = store.blocked.indexOf(id) >= 0;
@@ -930,6 +948,7 @@
   };
 
   V.chats = function () {
+    if (isRealMode()) return chatsSoon();
     var rows = D.moms.filter(function (m) { return momStatus(m) === "accepted" && store.blocked.indexOf(m.id) < 0; }).map(function (m) {
       var msgs = store.chats[m.id] || D.chats[m.id] || [];
       var last = msgs[msgs.length - 1];
@@ -940,7 +959,8 @@
       '<div class="view"><div class="backbar"><button class="icon-btn" data-act="back" aria-label="Back">' + icon("back") + '</button><span class="title">Messages</span></div>' +
       '<div class="inbox">' + (rows || emptyState("💬", "No chats yet", "Say hi to a mom nearby — chat opens when she says hi back.")) + "</div>" +
       (pending ? '<p class="footer-note">' + pending + " hello" + (pending > 1 ? "s" : "") + " waiting for a reply</p>" : "") +
-      '<p class="footer-note">Only moms you\'ve both said hi to can message you.</p></div>' };
+      '<p class="footer-note">Only moms you\'ve both said hi to can message you.</p>' +
+      '<p class="footer-note" id="chats-demo-note">Sample chats with fictional moms (demo)</p></div>' };
   };
 
 
@@ -982,14 +1002,19 @@
 
   // #privacy: plain, warm Privacy & Terms, linked from the welcome screen, the
   // feedback footer and a Me row. Every "what we store" line mirrors what
-  // backend.js actually writes (profiles incl. Google fullName/email, posts/replies
-  // with uid + anon flag, reactions, reports, feedback with page + browser) and
+  // backend.js actually writes (profiles incl. Google fullName/email, named
+  // posts/replies with uid, anonymous ones WITHOUT uid plus a moderator-only
+  // /postAuthors record, reactions, reports, feedback with page + browser) and
   // firestore.rules (profiles are owner-only, so other moms never read an email).
+  // Never claim more than the rules deliver: anonymous means "other moms see
+  // Anonymous mom", moderators CAN see who wrote it; sign-in is not identity or
+  // gender verification. privacy/index.html is a static, no-JS copy of this page
+  // (served at /privacy/) -- keep the two in sync (a unit test checks key lines).
   // Deliberately no email address and no mail link: deletion requests go through
   // "Send feedback" while signed in, which ties the request to her account uid.
   // NOT LEGAL ADVICE: a plain-language draft for a small beta. Have a lawyer review
   // it (incl. India's DPDP Act and GDPR/US state laws for moms abroad) before launch.
-  var PRIVACY_UPDATED = "9 October 2026";
+  var PRIVACY_UPDATED = "12 October 2026";
   function privacySection(emoji, title, body) {
     return '<section class="settings-group privacy-sec"><h3><span aria-hidden="true">' + emoji + "</span> " + title + '</h3><div class="card privacy-card">' + body + "</div></section>";
   }
@@ -1000,7 +1025,8 @@
       '<div class="card privacy-intro"><div style="font-size:30px;margin-bottom:8px" aria-hidden="true">🤍</div>' +
       "<p>" + name + " is a small, kind corner of the internet for moms. Here is, in plain words, who can join, what we keep, who sees what, and the few rules that keep it safe.</p></div>" +
       privacySection("🌸", "Who can join",
-        "<p>" + name + " is for women aged 18 and over who are moms or moms-to-be. One account per person, please.</p>") +
+        "<p>" + name + " is for women aged 18 and over who are moms or moms-to-be. One account per person, please.</p>" +
+        "<p>Signing in with Google only tells us you have a Google account \u2014 we don\u2019t check identity or gender. " + name + " is a moderated community, so please keep it kind and report anything that feels off.</p>") +
       privacySection("🗂️", "What we store",
         "<p>When you sign in with Google, we receive your <b>name, email address and profile photo</b> from Google. We keep your name and email on your private profile so we know the account is yours.</p>" +
         "<p>We also store what you add: your nickname, the stages and languages you pick, your <b>city if you add it</b>, your <b>posts and replies</b> (and whether each one is anonymous), the <b>reactions</b> you give, any posts you report, and <b>feedback notes</b> you send (with the page you sent them from and your browser type).</p>" +
@@ -1008,7 +1034,8 @@
       privacySection("👀", "What other moms see",
         "<p>Other moms see your <b>nickname</b> (or <b>\u201cAnonymous mom\u201d</b>), your posts, your replies and reaction counts. They <b>never</b> see your email address, and your profile is readable only by you.</p>") +
       privacySection("🫶", "Anonymous posts",
-        "<p>When you post anonymously, other moms see \u201cAnonymous mom\u201d instead of your name. The post is still saved with your account, so you can manage it and so moderators can act if it is reported.</p>") +
+        "<p>When you post or reply anonymously, other moms see \u201cAnonymous mom\u201d instead of your name, and the post itself carries no account ID that links it to you.</p>" +
+        "<p>We keep a separate, private record of which account wrote it. <b>Only " + name + " moderators can see it</b> \u2014 so they can act if a post is reported \u2014 and it lets you delete your own post. Anything you write in a post is visible to other moms, so leave out details that could identify you.</p>") +
       privacySection("🩺", "Not medical advice",
         "<p>Moms supporting moms \u2014 " + name + " is not a replacement for your doctor, midwife or therapist. Advice here comes from other moms\u2019 experience, not from professionals.</p>" +
         '<p><b>In an emergency, call your local emergency number now</b> (112 in India, 911 in the US and Canada, 999 in the UK). For support lines, see the <a href="#safety" id="privacy-safety">Safety centre &amp; crisis lines</a>.</p>') +
@@ -1033,21 +1060,26 @@
     var authMethodLabel = (store.authMethod === "google" || store.verify.google) ? "Google" : "phone";
     var policy = [
       ["mutual", "Only moms I've said hi to", "Recommended · chat after a mutual hello"],
-      ["verified", "Any verified mom", "Still women-only and verified"],
+      ["verified", "Any signed-in mom", "Anyone signed in can send a chat request"],
       ["none", "No one for now", "Pause all new messages"]
     ].map(function (o) {
       return '<button class="radio-row" role="radio" aria-checked="' + (store.msgPolicy === o[0]) + '" data-act="policy" data-v="' + o[0] + '"><span class="grow"><b>' + o[1] + "</b><span>" + o[2] + '</span></span><span class="radio"></span></button>';
     }).join("");
+    // Real mode: Nearby and Messages aren't live yet (see V.nearby / chatsSoon), so
+    // their settings would store nothing, and the demo stats are made-up numbers --
+    // hide all three rather than show controls/counts that aren't real.
+    var real = isRealMode();
     return { tab: "me", html:
       '<div class="view"><header class="topbar"><h1>Me</h1></header>' +
       '<div class="card profile-card">' + avatar(p.nickname, D.me.hue, "xl") +
-      "<h2>" + esc(p.nickname) + '</h2><span class="verified">' + icon("shield") + "Verified mom · " + authMethodLabel + "</span>" +
+      "<h2>" + esc(p.nickname) + '</h2><span class="verified" id="me-signin-method">' + icon("shield") + "Signed in with " + authMethodLabel + "</span>" +
       '<div class="chips">' + p.stages.map(function (s) { return '<span class="tag marigold">' + esc(s) + "</span>"; }).join("") + p.langs.map(function (s) { return '<span class="tag teal">' + esc(s) + "</span>"; }).join("") + "</div>" +
-      '<div class="stats"><div><b>' + (2 + store.posts.length) + "</b><span>Questions</span></div><div><b>" + (7 + Object.keys(store.answers).reduce(function (n, k) { return n + store.answers[k].length; }, 0)) + "</b><span>Replies</span></div><div><b>" + (31 + Object.keys(store.reacted).length) + "</b><span>Hugs given</span></div></div></div>" +
+      (real ? "</div>" :
+      '<div class="stats"><div><b>' + (2 + store.posts.length) + "</b><span>Questions</span></div><div><b>" + (7 + Object.keys(store.answers).reduce(function (n, k) { return n + store.answers[k].length; }, 0)) + "</b><span>Replies</span></div><div><b>" + (31 + Object.keys(store.reacted).length) + "</b><span>Hugs given</span></div></div></div>") +
       '<div class="settings-group"><h3>Privacy</h3><div class="card">' +
       '<div class="toggle-row"><div class="grow"><b>Post anonymously by default</b><span>Switch per post anytime</span></div>' + switchEl(p.anonDefault, "toggle-anon-default", "Post anonymously by default", ' id="set-anon"') + "</div>" +
-      '<div class="toggle-row"><div class="grow"><b>Show me to moms near me</b><span>Neighbourhood only · never exact location</span></div>' + switchEl(store.nearbyOn, "nearby-toggle", "Show me to moms near me", ' id="set-nearby"') + "</div></div></div>" +
-      '<div class="settings-group"><h3>Who can message me</h3><div class="card" role="radiogroup">' + policy + "</div></div>" +
+      (real ? "" : '<div class="toggle-row"><div class="grow"><b>Show me to moms near me</b><span>Neighbourhood only · never exact location</span></div>' + switchEl(store.nearbyOn, "nearby-toggle", "Show me to moms near me", ' id="set-nearby"') + "</div>") + "</div></div>" +
+      (real ? "" : '<div class="settings-group"><h3>Who can message me</h3><div class="card" role="radiogroup">' + policy + "</div></div>") +
       '<div class="settings-group"><h3>Safety</h3><div class="card">' +
       '<button class="link-row" data-act="blocked-list">' + icon("block") + '<span class="grow">Blocked moms</span><span class="tiny">' + store.blocked.length + "</span>" + icon("chevron") + "</button>" +
       '<button class="link-row" data-act="guidelines">' + icon("book") + '<span class="grow">Community guidelines</span>' + icon("chevron") + "</button>" +

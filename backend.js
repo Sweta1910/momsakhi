@@ -63,6 +63,46 @@
   }
   Backend._useEmulators = useEmulators;
 
+  // ---- Post / reply payloads (pure, so tests can call them without Firebase).
+  // 2026-10-12 anonymity fix: an ANONYMOUS post or reply carries NO uid (and no
+  // other per-mom id) in the publicly readable doc -- otherwise any signed-in mom
+  // could link "Anonymous mom" posts to the same account's named posts. Who wrote
+  // it lives only in the moderator-only /postAuthors record (see authorRecord and
+  // firestore.rules). Named posts keep uid, as before. `ts` is serverTimestamp().
+  function postPayload(uid, authorName, isAnon, circle, title, body, meta, hue, ts) {
+    var anon = !!isAnon;
+    var data = {
+      author: anon ? null : str(authorName, "Mom"),
+      anon: anon,
+      circle: (circle && typeof circle === "string" && circle.trim()) ? circle.trim() : null,
+      title: str(title, ""),
+      body: str(body, ""),
+      meta: str(meta, "Mom"),
+      hue: str(hue, "teal"),
+      createdAt: ts,
+      replyCount: 0
+    };
+    if (!anon) data.uid = uid;
+    return data;
+  }
+  function replyPayload(uid, authorName, isAnon, body, hue, ts) {
+    var anon = !!isAnon;
+    var data = {
+      author: anon ? null : str(authorName, "Mom"),
+      anon: anon,
+      body: str(body, ""),
+      hue: str(hue, "teal"),
+      createdAt: ts
+    };
+    if (!anon) data.uid = uid;
+    return data;
+  }
+  // The private "who wrote this anonymous post/reply" note: exactly these keys.
+  function authorRecord(uid, ts) { return { uid: uid, createdAt: ts }; }
+  Backend._postPayload = postPayload;
+  Backend._replyPayload = replyPayload;
+  Backend._authorRecord = authorRecord;
+
   if (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey && window.FIREBASE_CONFIG.apiKey.indexOf("PASTE") === -1) {
     Backend.ready = Promise.all([
       import("https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js"),
@@ -135,32 +175,34 @@
         return setDoc(doc(db, "profiles", uid), plain(profile), { merge: true });
       };
 
+      // Named posts: one addDoc carrying uid. Anonymous posts: ONE batch writes the
+      // uid-free post AND /postAuthors/{postId} {uid}; rules accept each half only
+      // alongside the other, so an anon post always has a (private) author record
+      // and nobody can claim someone else's post. Resolves with the post's ref.
       Backend.addPost = function(uid, authorName, isAnon, circle, title, body, meta, hue) {
-        var anon = !!isAnon;
-        return addDoc(collection(db, "posts"), {
-          uid: uid,
-          author: anon ? null : str(authorName, "Mom"),
-          anon: anon,
-          circle: (circle && typeof circle === "string" && circle.trim()) ? circle.trim() : null,
-          title: str(title, ""),
-          body: str(body, ""),
-          meta: str(meta, "Mom"),
-          hue: str(hue, "teal"),
-          createdAt: serverTimestamp(),
-          replyCount: 0
-        });
+        var data = postPayload(uid, authorName, isAnon, circle, title, body, meta, hue, serverTimestamp());
+        if (!data.anon) return addDoc(collection(db, "posts"), data);
+        var postRef = doc(collection(db, "posts"));
+        var batch = writeBatch(db);
+        batch.set(postRef, data);
+        batch.set(doc(db, "postAuthors", postRef.id), authorRecord(uid, serverTimestamp()));
+        return batch.commit().then(function() { return postRef; });
       };
 
+      // Same split for replies: anon -> uid-free reply + /postAuthors/{postId}/replies/{replyId}.
       Backend.addReply = function(postId, uid, authorName, isAnon, body, hue) {
-        var anon = !!isAnon;
-        return addDoc(collection(db, "posts/" + postId + "/replies"), {
-          uid: uid,
-          author: anon ? null : str(authorName, "Mom"),
-          anon: anon,
-          body: str(body, ""),
-          hue: str(hue, "teal"),
-          createdAt: serverTimestamp()
-        }).then(function(ref) {
+        var data = replyPayload(uid, authorName, isAnon, body, hue, serverTimestamp());
+        var write;
+        if (!data.anon) {
+          write = addDoc(collection(db, "posts/" + postId + "/replies"), data);
+        } else {
+          var replyRef = doc(collection(db, "posts/" + postId + "/replies"));
+          var batch = writeBatch(db);
+          batch.set(replyRef, data);
+          batch.set(doc(db, "postAuthors", postId, "replies", replyRef.id), authorRecord(uid, serverTimestamp()));
+          write = batch.commit().then(function() { return replyRef; });
+        }
+        return write.then(function(ref) {
           // Best-effort counter for the feed; rules only allow +1 on replyCount.
           updateDoc(doc(db, "posts", postId), { replyCount: increment(1) }).catch(function(e) {
             console.warn("replyCount bump failed (reply itself was saved)", e);

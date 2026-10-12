@@ -1,7 +1,7 @@
 # MomSakhi — clickable prototype
 
 > **A sakhi for every stage of motherhood.** *Sakhi* (सखी) means a close friend.
-> No judgement, just moms: a women-only, judgement-free community app for Indian moms
+> No judgement, just moms: a moderated, judgement-free community app for moms
 > anywhere in the world — in India and abroad (USA, UK, Canada, UAE, Singapore, Australia…).
 
 Personal project prototype (not UCP work). Pure static HTML/CSS/JS with mock data: no backend,

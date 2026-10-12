@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#FFF7EE">
+  <title>Privacy &amp; Terms — MomSakhi</title>
+  <meta name="description" content="MomSakhi Privacy & Terms in plain words: who can join, what we store, who sees what, anonymous posts, and the community rules.">
+  <link rel="icon" type="image/png" sizes="192x192" href="../icons/icon-192.png">
+  <!--
+    Static, no-JavaScript copy of the in-app #privacy page (app.js V.privacy), so
+    https://sweta1910.github.io/momsakhi/privacy works for app-store listings,
+    Google OAuth consent screens and anyone without JS. KEEP IN SYNC with app.js
+    (tests/test_aangan_web.py TestStaticPrivacyPage checks the key lines match).
+    Self-contained styles on purpose: no app.js / styles.css needed.
+  -->
+  <style>
+    :root { --bg:#FFF7EE; --card:#fff; --ink:#2B1D16; --ink-2:#5E4A40; --plum:#5A2D4C; --line:#F0E2D3; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 680px; margin: 0 auto; padding: 24px 18px 48px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom: 18px; }
+    h1 { font-family: Fraunces, Georgia, serif; font-size: 28px; margin: 0; }
+    .brand { color: var(--plum); font-weight: 700; text-decoration: none; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 18px; }
+    .intro { text-align: center; margin-bottom: 8px; }
+    section h2 { font-size: 15px; letter-spacing: .02em; color: var(--ink-2); margin: 22px 4px 8px; }
+    section p { margin: 0 0 10px; } section p:last-child { margin-bottom: 0; }
+    ul { margin: 0 0 10px; padding-left: 20px; }
+    a { color: var(--plum); }
+    .foot { text-align:center; color: var(--ink-2); font-size: 14px; margin-top: 26px; }
+    .open { display:inline-block; margin-top: 10px; padding: 10px 18px; border-radius: 999px; background: var(--plum); color:#fff; text-decoration:none; font-weight:600; }
+  </style>
+</head>
+<body>
+<main class="privacy-static">
+  <header>
+    <h1>Privacy &amp; Terms</h1>
+    <a class="brand" href="../#home">MomSakhi</a>
+  </header>
+
+  <div class="card intro">
+    <div style="font-size:30px;margin-bottom:8px" aria-hidden="true">🤍</div>
+    <p>MomSakhi is a small, kind corner of the internet for moms. Here is, in plain words, who can join, what we keep, who sees what, and the few rules that keep it safe.</p>
+  </div>
+
+  <section>
+    <h2><span aria-hidden="true">🌸</span> Who can join</h2>
+    <div class="card">
+      <p>MomSakhi is for women aged 18 and over who are moms or moms-to-be. One account per person, please.</p>
+      <p>Signing in with Google only tells us you have a Google account — we don’t check identity or gender. MomSakhi is a moderated community, so please keep it kind and report anything that feels off.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span aria-hidden="true">🗂️</span> What we store</h2>
+    <div class="card">
+      <p>When you sign in with Google, we receive your <b>name, email address and profile photo</b> from Google. We keep your name and email on your private profile so we know the account is yours.</p>
+      <p>We also store what you add: your nickname, the stages and languages you pick, your <b>city if you add it</b>, your <b>posts and replies</b> (and whether each one is anonymous), the <b>reactions</b> you give, any posts you report, and <b>feedback notes</b> you send (with the page you sent them from and your browser type).</p>
+      <p>All of this lives in <b>Google Firebase</b> (Firebase Authentication and Cloud Firestore). A few settings are also kept in your browser on this device.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span aria-hidden="true">👀</span> What other moms see</h2>
+    <div class="card">
+      <p>Other moms see your <b>nickname</b> (or <b>“Anonymous mom”</b>), your posts, your replies and reaction counts. They <b>never</b> see your email address, and your profile is readable only by you.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span aria-hidden="true">🫶</span> Anonymous posts</h2>
+    <div class="card">
+      <p>When you post or reply anonymously, other moms see “Anonymous mom” instead of your name, and the post itself carries no account ID that links it to you.</p>
+      <p>We keep a separate, private record of which account wrote it. <b>Only MomSakhi moderators can see it</b> — so they can act if a post is reported — and it lets you delete your own post. Anything you write in a post is visible to other moms, so leave out details that could identify you.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span aria-hidden="true">🩺</span> Not medical advice</h2>
+    <div class="card">
+      <p>Moms supporting moms — MomSakhi is not a replacement for your doctor, midwife or therapist. Advice here comes from other moms’ experience, not from professionals.</p>
+      <p><b>In an emergency, call your local emergency number now</b> (112 in India, 911 in the US and Canada, 999 in the UK). For support lines, see the <a href="../#safety">Safety centre &amp; crisis lines</a>.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span aria-hidden="true">🤝</span> Community rules</h2>
+    <div class="card">
+      <ul>
+        <li>Be kind. No shaming, bullying or judging another mom’s choices.</li>
+        <li>No ads, selling or spam.</li>
+        <li>No medical misinformation. Share your experience, and encourage moms to check with their doctor.</li>
+        <li>Respect privacy: don’t share another person’s photos or personal details.</li>
+      </ul>
+      <p>Moderators may remove posts or replies that break these rules, and may remove accounts that keep breaking them.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span aria-hidden="true">🗑️</span> Deleting your account and data</h2>
+    <div class="card">
+      <p>Sign in, tap <b>“Send feedback”</b> and write <b>“Delete my account”</b>. Because you are signed in, we know which account it is. We will delete your account and the data linked to it (profile, posts, replies, reactions and feedback) <b>within 30 days</b>.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span aria-hidden="true">🚫</span> No ads, no selling</h2>
+    <div class="card">
+      <p>We don’t show ads and we never sell your data.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span aria-hidden="true">📝</span> Changes to these terms</h2>
+    <div class="card">
+      <p>If we change these terms, we will update this page and the date below. Using MomSakhi after a change means you accept the updated terms.</p>
+    </div>
+  </section>
+
+  <p class="foot" id="privacy-updated">Last updated: 12 October 2026</p>
+  <p class="foot"><a class="open" href="../#home">Open MomSakhi</a></p>
+</main>
+</body>
+</html>

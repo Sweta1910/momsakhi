@@ -618,7 +618,10 @@ class TestModeration(unittest.TestCase):
         reports = self._block("match /reports/{reportId}")
         self.assertIn("allow read, delete: if isModerator();", reports)
         self.assertIn("request.resource.data.reporterUid == request.auth.uid", reports)
-        self.assertEqual(self.rules.count("(isModerator() || resource.data.uid == request.auth.uid)"), 2)
+        # 2026-10-12: get('uid', null) because anonymous posts/replies have no uid key;
+        # their author proves ownership via the private /postAuthors record instead.
+        self.assertEqual(self.rules.count("(isModerator() || resource.data.get('uid', null) == request.auth.uid)"), 2)
+        self.assertEqual(self.rules.count("isAnonAuthor(/databases/$(database)/documents/postAuthors/$(postId)"), 2)
 
     def test_rules_keep_existing_and_deny_by_default(self):
         self.assertIn("match /{document=**} {\n      allow read, write: if false;", self.rules)
@@ -1041,7 +1044,7 @@ const h = pv.html;
 ['Who can join', '18 and over', 'What we store', 'Google Firebase', 'What other moms see', 'Anonymous mom',
  'Anonymous posts', 'Not medical advice', 'local emergency number', 'href="#safety"', 'Community rules',
  'No ads, selling or spam', 'medical misinformation', 'Moderators may remove', 'Delete my account',
- 'within 30 days', 'Send feedback', 'never sell your data', 'Changes to these terms', 'Last updated: 9 October 2026'
+ 'within 30 days', 'Send feedback', 'never sell your data', 'Changes to these terms', 'Last updated: 12 October 2026'
 ].forEach(function (s) { ok(h.includes(s), 'missing: ' + s); });
 ok(!h.includes('@'), 'privacy page must not contain any email address');
 ok(!/mailto:/i.test(h), 'privacy page must not contain mailto');
@@ -1436,3 +1439,225 @@ class TestHelplines(unittest.TestCase):
         import subprocess
         r = subprocess.run([node, "-e", harness], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class TestPreInviteSafety(unittest.TestCase):
+    """2026-10-12 pre-invite safety fixes:
+    1. anonymous posts/replies carry NO uid in the public doc; authorship lives in
+       moderator-only /postAuthors (written in the same batch, rules-enforced);
+    2. no "women-only & verified" claims (sign-in is not identity verification);
+    3. real mode never shows data.js people/events/chats (Nearby, Meetups, Chats, DMs);
+    4. a static privacy/index.html served at /privacy/, in sync with #privacy.
+    Live proof against the emulator: ~/liquid/state/scratch/aangan_e2e/anon_e2e.py."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = _read("app.js")
+        cls.backend = _read("backend.js")
+        cls.data = _read("data.js")
+        cls.index = _read("index.html")
+        cls.sw = _read("sw.js")
+        with open(os.path.join(APP_DIR, "firestore.rules"), encoding="utf-8") as f:
+            cls.rules = f.read()
+        cls.privacy_path = os.path.join(APP_DIR, "privacy", "index.html")
+
+    def _node_run(self, harness):
+        node = _node()
+        if not node:
+            self.skipTest("node not installed")
+        r = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("OK", r.stdout)
+        return r.stdout
+
+    # ---- 1. anonymity
+    def test_anon_payloads_have_no_uid(self):
+        self._node_run(r"""
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const src = fs.readFileSync(path.join(%r, 'backend.js'), 'utf8');
+const w = { console: console }; w.window = w;   // no FIREBASE_CONFIG -> demo branch, pure helpers still exported
+vm.runInContext(src, vm.createContext(w));
+const B = w.Backend;
+function ok(c, m) { if (!c) throw new Error(m); }
+const TS = { ts: 1 };
+const anon = B._postPayload('uid-123', 'Meera', true, 'sleep', 'T', 'Body', 'Mom of a toddler', 'teal', TS);
+ok(!('uid' in anon), 'anon post carries uid: ' + JSON.stringify(anon));
+ok(anon.author === null && anon.anon === true, 'anon post author/anon: ' + JSON.stringify(anon));
+ok(!JSON.stringify(anon).includes('uid-123'), 'anon post leaks the uid value anywhere');
+const named = B._postPayload('uid-123', 'Meera', false, null, 'T', 'Body', 'Mom', 'teal', TS);
+ok(named.uid === 'uid-123' && named.author === 'Meera' && named.anon === false, 'named post: ' + JSON.stringify(named));
+const ar = B._replyPayload('uid-123', null, true, 'hi', 'teal', TS);
+ok(!('uid' in ar) && ar.author === null && !JSON.stringify(ar).includes('uid-123'), 'anon reply: ' + JSON.stringify(ar));
+const nr = B._replyPayload('uid-123', 'Meera', false, 'hi', 'teal', TS);
+ok(nr.uid === 'uid-123', 'named reply keeps uid');
+const rec = B._authorRecord('uid-123', TS);
+ok(JSON.stringify(Object.keys(rec).sort()) === '["createdAt","uid"]' && rec.uid === 'uid-123', 'author record: ' + JSON.stringify(rec));
+// Keys a post may have must match the rules' hasOnly list.
+console.log(JSON.stringify(Object.keys(named).sort()));
+console.log('OK');
+""" % WEB_DIR)
+
+    def test_backend_anon_writes_author_record_in_same_batch(self):
+        i = self.backend.index("Backend.addPost = function")
+        body = self.backend[i:self.backend.index("Backend.addReport = function")]
+        self.assertIn("if (!data.anon) return addDoc(collection(db, \"posts\"), data);", body)
+        self.assertIn('batch.set(doc(db, "postAuthors", postRef.id), authorRecord(uid, serverTimestamp()));', body)
+        self.assertIn('batch.set(doc(db, "postAuthors", postId, "replies", replyRef.id), authorRecord(uid, serverTimestamp()));', body)
+        self.assertEqual(body.count("batch.commit()"), 2)
+        self.assertNotIn("uid: uid,", body)  # uid is added only for named posts, inside postPayload
+
+    def test_rules_anon_has_no_uid_and_private_author_record(self):
+        posts = self.rules[self.rules.index("match /posts/{postId}"):self.rules.index("match /postAuthors/{postId}")]
+        self.assertEqual(posts.count("!('uid' in request.resource.data)"), 2)  # posts + replies
+        self.assertIn("keys().hasOnly(['uid', 'author', 'anon', 'circle', 'title', 'body', 'meta', 'hue', 'createdAt', 'replyCount'])", posts)
+        self.assertIn("keys().hasOnly(['uid', 'author', 'anon', 'body', 'hue', 'createdAt'])", posts)
+        self.assertIn("getAfter(/databases/$(database)/documents/postAuthors/$(postId)).data.uid == request.auth.uid", posts)
+        self.assertIn("getAfter(/databases/$(database)/documents/postAuthors/$(postId)/replies/$(replyId)).data.uid == request.auth.uid", posts)
+        pa = self.rules[self.rules.index("match /postAuthors/{postId}"):self.rules.index("match /reports/{reportId}")]
+        self.assertEqual(pa.count("allow read: if isModerator() || (request.auth != null && resource.data.uid == request.auth.uid);"), 2)
+        self.assertNotIn("allow update", pa)
+        self.assertNotIn("allow write", pa)
+        self.assertNotIn("allow read: if request.auth != null;", pa)
+        helper = self.rules[self.rules.index("function authorRecordOk(target)"):self.rules.index("function isAnonAuthor(record)")]
+        for s in ("keys().hasOnly(['uid', 'createdAt'])", "request.resource.data.uid == request.auth.uid",
+                  "!exists(target) && existsAfter(target)", "getAfter(target).data.get('anon', false) == true"):
+            self.assertIn(s, helper)
+
+    def test_backend_post_keys_match_rules(self):
+        node = _node()
+        if not node:
+            self.skipTest("node not installed")
+        src = r"""
+const fs = require('fs'), vm = require('vm'); const w = {console}; w.window = w;
+vm.runInContext(fs.readFileSync(%r, 'utf8'), vm.createContext(w));
+console.log(JSON.stringify(Object.keys(w.Backend._postPayload('u', 'n', false, 'c', 't', 'b', 'm', 'h', 1))));
+console.log(JSON.stringify(Object.keys(w.Backend._replyPayload('u', 'n', false, 'b', 'h', 1))));
+""" % os.path.join(WEB_DIR, "backend.js")
+        r = subprocess.run([node, "-e", src], capture_output=True, text=True)
+        post_keys, reply_keys = [set(json.loads(l)) for l in r.stdout.split()]
+        rule_post = set(re.findall(r"'(\w+)'", re.search(r"keys\(\)\.hasOnly\(\[('uid', 'author', 'anon', 'circle'[^\]]*)\]\)", self.rules).group(1)))
+        rule_reply = set(re.findall(r"'(\w+)'", re.search(r"keys\(\)\.hasOnly\(\[('uid', 'author', 'anon', 'body'[^\]]*)\]\)", self.rules).group(1)))
+        self.assertLessEqual(post_keys, rule_post)
+        self.assertLessEqual(reply_keys, rule_reply)
+
+    # ---- 2. honest wording
+    BANNED = ("women-only", "Women-only", "Verified mom", "verified by phone or Google", "Any verified mom",
+              "Still women-only", "keeps out fake profiles", "Google account verified", "Verified with Google",
+              "stays a women-only space")
+
+    def test_no_women_only_or_verified_member_claims(self):
+        with open(self.privacy_path, encoding="utf-8") as f:
+            static = f.read()
+        for name, src in (("app.js", self.app), ("data.js", self.data), ("index.html", self.index), ("privacy/index.html", static)):
+            # The code comment explaining the rule may quote the old claims.
+            code = re.sub(r"//[^\n]*", "", src)
+            for bad in self.BANNED:
+                self.assertNotIn(bad, code, "%s still claims %r" % (name, bad))
+
+    def test_rendered_welcome_and_verify_copy_is_honest(self):
+        self._node_run(r"""
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const webDir = %r;
+function ok(c, m) { if (!c) throw new Error(m); }
+for (const real of [true, false]) {
+  const ls = { store: {}, getItem(k) { return this.store[k] || null; }, setItem(k, v) { this.store[k] = v; }, removeItem(k) { delete this.store[k]; } };
+  const w = { location: { hash: '#welcome', search: '', hostname: 'localhost' }, localStorage: ls,
+    document: { addEventListener() {}, querySelector() { return null; }, getElementById() { return null; }, body: { setAttribute() {} } },
+    Backend: { isReal: real }, console, setTimeout, clearTimeout };
+  w.window = w; vm.runInContext(fs.readFileSync(path.join(webDir, 'data.js'), 'utf8'), vm.createContext(w));
+  vm.runInContext(fs.readFileSync(path.join(webDir, 'app.js'), 'utf8'), w);
+  const h = w.AANGAN.V.welcome().html + w.AANGAN.V['onboard/verify']().html + w.AANGAN.V.me().html;
+  ok(!/verified mom|women-only|every member is verified/i.test(h), 'overclaim rendered: ' + h);
+  ok(h.includes('A space for moms') && h.includes('moderated community') && h.includes('For moms · Kind · Moderated'), 'honest welcome copy missing');
+  ok(h.includes('Signed in with'), 'Me shows sign-in method, not "verified"');
+}
+console.log('OK');
+""" % WEB_DIR)
+
+    # ---- 3. no fictional people in real mode
+    def test_real_mode_shows_no_data_js_people_events_or_chats(self):
+        self._node_run(r"""
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const webDir = %r;
+function ok(c, m) { if (!c) throw new Error(m); }
+function boot(real, seed) {
+  const ls = { store: {}, getItem(k) { return this.store[k] || null; }, setItem(k, v) { this.store[k] = v; }, removeItem(k) { delete this.store[k]; } };
+  ls.store['aangan.demo.v1'] = JSON.stringify(seed);
+  const w = { location: { hash: '#home', search: '', hostname: 'localhost' }, localStorage: ls,
+    document: { addEventListener() {}, querySelector() { return null; }, getElementById() { return null; }, body: { setAttribute() {} } },
+    Backend: { isReal: real, user: real ? { uid: 'u1' } : null }, console, setTimeout, clearTimeout };
+  w.window = w; vm.runInContext(fs.readFileSync(path.join(webDir, 'data.js'), 'utf8'), vm.createContext(w));
+  vm.runInContext(fs.readFileSync(path.join(webDir, 'app.js'), 'utf8'), w);
+  return w;
+}
+const seedOn = { onboarded: true, city: 'Pune', nearbyOn: true };
+const seedOff = { onboarded: true, city: 'Pune', nearbyOn: false };
+const w = boot(true, seedOn), D = w.AANGAN_DATA;
+const people = D.moms.map(m => m.nickname), events = D.events.map(e => e.title);
+ok(people.length > 0 && events.length > 0, 'fixture sanity');
+const pages = {
+  chats: w.AANGAN.V.chats().html,
+  nearbyOn: w.AANGAN.V.nearby().html,
+  nearbyOff: boot(true, seedOff).AANGAN.V.nearby().html,
+  meetups: w.AANGAN.V.meetups().html,
+  me: w.AANGAN.V.me().html,
+};
+D.moms.forEach(m => { pages['chat/' + m.id] = w.AANGAN.V.chat(m.id).html; });
+for (const [k, h] of Object.entries(pages)) {
+  for (const n of people.concat(events)) ok(!h.includes(n), 'real ' + k + ' shows demo "' + n + '"');
+  ok(!h.includes('data-act="say-hi"') && !h.includes('data-act="rsvp"') && !h.includes('chat-send') && !h.includes('map-card'), 'real ' + k + ' has demo controls');
+}
+ok(pages.chats.includes('Messages are coming soon') && pages['chat/' + D.moms[0].id].includes('Messages are coming soon'), 'chats coming soon: ' + pages.chats);
+ok(pages.nearbyOn.includes('coming soon') && pages.nearbyOff.includes('coming soon') && !pages.nearbyOff.includes('nearby-toggle'), 'nearby coming soon');
+ok(pages.meetups.includes('coming soon') && !pages.meetups.includes('data-act="soon"'), 'meetups coming soon');
+const home = w.AANGAN.V.home().html;
+D.circles.forEach(c => ok(!home.includes(c.members + ' moms'), 'real home shows fictional member count ' + c.members));
+ok(!pages.me.includes('Who can message me') && !pages.me.includes('Hugs given') && !pages.me.includes('id="set-nearby"'), 'real Me has demo-only settings/stats');
+// Demo mode keeps samples, clearly labelled.
+const d = boot(false, seedOn);
+const dc = d.AANGAN.V.chats().html;
+ok(people.some(n => dc.includes(n)) && dc.includes('Sample chats with fictional moms (demo)'), 'demo chats labelled: ' + dc);
+ok(d.AANGAN.V.meetups().html.includes('sample data (demo)'), 'demo meetups labelled');
+console.log('OK');
+""" % WEB_DIR)
+
+    # ---- 4. static privacy page
+    def test_static_privacy_page_exists_parses_and_is_in_sync(self):
+        self.assertTrue(os.path.exists(self.privacy_path), "privacy/index.html missing (/privacy would 404)")
+        with open(self.privacy_path, encoding="utf-8") as f:
+            static = f.read()
+        p = _Collector()
+        p.feed(static)
+        self.assertEqual(p.errors, [])
+        self.assertEqual(p.stack, [])
+        self.assertEqual(p.scripts, [], "static privacy page must work without JS")
+        self.assertNotIn("@", static)
+        self.assertNotIn("mailto:", static.lower())
+        self.assertIn('href="../#home"', static)
+        self.assertIn('href="../#safety"', static)
+        # Every section title and key line of the in-app page is on the static page.
+        app_date = re.search(r'var PRIVACY_UPDATED = "([^"]+)";', self.app).group(1)
+        self.assertIn("Last updated: " + app_date, static)
+        titles = re.findall(r'privacySection\("[^"]+", "([^"]+)"', self.app)
+        self.assertGreaterEqual(len(titles), 9)
+        for t in titles:
+            self.assertIn(t, static)
+        # app.js writes curly quotes/dashes as \uXXXX escapes inside JS strings.
+        app_text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), self.app)
+        for line in ("Only MomSakhi moderators can see it", "the post itself carries no account ID",
+                     "we don\u2019t check identity or gender", "moderated community", "within 30 days",
+                     "never sell your data", "18 and over"):
+            self.assertTrue(line in static, "static page missing: " + line)
+            self.assertTrue(line.replace("MomSakhi", '" + name + "') in app_text, "#privacy missing: " + line)
+
+    def test_privacy_never_overclaims_anonymity(self):
+        i = self.app.index("V.privacy = function")
+        body = self.app[i:self.app.index("V.me = function")]
+        self.assertIn("moderators can see it", body)
+        for bad in ("no one can see", "No one can see", "completely anonymous", "fully anonymous", "untraceable"):
+            self.assertNotIn(bad, body)
+
+    def test_sw_precaches_privacy_page(self):
+        shell = re.search(r"var SHELL = \[(.*?)\];", self.sw, re.S).group(1)
+        self.assertIn('"privacy/"', shell)
+        self.assertNotIn("a1b2c3d", self.sw + self.index, "placeholder cache version still in place")
