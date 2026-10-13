@@ -608,7 +608,11 @@
       '<div class="who"><b>' + esc(name) + "</b><span>" + esc(p.meta) + " · " + esc(p.time) + "</span></div>" +
       (opts.full ? '<button class="icon-btn" data-act="post-menu" data-id="' + p.id + '" aria-label="More options">' + icon("more") + "</button>" : "") +
       "</div>" +
-      (opts.full || !c ? "" : '<div class="post-tagrow"><a class="tag" style="text-decoration:none" href="#circle/' + c.id + '">' + c.emoji + " " + esc(c.name) + "</a></div>") +
+      '<div class="post-tagrow" style="display:flex;gap:6px;margin-bottom:8px">' +
+      (opts.full || !c ? "" : '<a class="tag" style="text-decoration:none" href="#circle/' + c.id + '">' + c.emoji + " " + esc(c.name) + "</a>") +
+      (p.intent === "vent" ? '<span class="tag marigold">\ud83e\udec2 Just venting</span>' : "") +
+      (p.intent === "advice" ? '<span class="tag teal">\ud83d\udcad Wants advice</span>' : "") +
+      '</div>' +
       "<h3>" + esc(p.title) + "</h3>" +
       (p.body ? '<p class="body ' + (opts.full ? "" : "clamp") + '">' + esc(p.body) + "</p>" : "") +
       '<div class="post-foot">' + reactionBar(p.id, p.reactions || {}) +
@@ -696,7 +700,7 @@
       '<div class="logo">' + logoMark() + '<span class="logo-word" style="font-size:28px">' + esc(BRAND.name) + "</span></div>" +
       "<h1>" + esc(BRAND.tagline).replace("sakhi", "<em>sakhi</em>") + "</h1>" +
       '<p class="sakhi-note"><b>Sakhi</b> (सखी) means a close friend — no judgement, just moms.</p>' +
-      "<p>" + esc(BRAND.blurb) + "</p></div>" +
+      "<p>" + esc(BRAND.blurb) + "</p>" +      '<p style="font-weight: 500; font-size: 15px; margin-top: 12px; color: var(--ink);">Share anything. No judgment. You don\'t have to carry it alone.</p></div>' +
       '<div class="promise">' +
       promiseRow("🤍", "var(--plum-soft)", "A space for moms", "A moderated community — please keep it kind") +
       promiseRow("🫶", "var(--peach)", "Anonymous when you need it", "Other moms see \u201cAnonymous mom\u201d instead of your name") +
@@ -731,18 +735,29 @@
     }
     var val = access.code || pendingInvite();
     var fromLink = inviteFromLink() && val && val === pendingInvite() && !access.error;
+    
+    var wlHTML = store.waitlisted ?
+      '<div class="card" style="text-align:center;padding:24px;margin-top:16px"><h3 style="margin-bottom:8px">You\u2019re on the list \ud83d\udc9c</h3><p class="muted" style="margin-bottom:0">We\u2019ll send you an invite soon.</p></div>' :
+      '<div class="card" style="margin-top:16px;padding:16px"><h3 style="margin-bottom:12px;font-size:16px">Request an invite</h3>' +
+      '<div class="field"><label for="wl-name">Name or nickname</label><input class="input" id="wl-name" placeholder="E.g. Priya" maxlength="50" value="' + esc(u.displayName || "") + '"></div>' +
+      '<div class="field"><label for="wl-city">City (optional)</label><input class="input" id="wl-city" placeholder="E.g. Delhi" maxlength="50"></div>' +
+      '<div class="field"><label for="wl-note">How did you hear about us? (optional)</label><input class="input" id="wl-note" maxlength="100"></div>' +
+      '<button class="btn btn-primary btn-block" data-act="wl-submit" id="wl-submit"' + (access.busy ? " disabled" : "") + '>Request invite</button></div>';
+
     return { tab: null, html: head +
-      "<h1>Enter your invite code</h1>" +
-      '<p class="lead">' + esc(BRAND.name) + " is invite-only during the beta. Ask the mom who invited you for her code or link.</p>" +
-      '<div class="field"><label for="invite-code">Invite code</label>' +
+      '<h1 style="margin-bottom:8px">Welcome</h1>' +
+      '<p class="lead" style="font-weight:500;color:var(--ink);margin-bottom:12px">Share anything. No judgment. You don\'t have to carry it alone.</p>' +
+      '<p class="lead" style="margin-bottom:24px">' + esc(BRAND.name) + " is invite-only during the beta. Ask the mom who invited you for her code or link.</p>" +
+      '<div class="card" style="padding:16px">' +
+      '<div class="field" style="margin-bottom:12px"><label for="invite-code">Invite code</label>' +
       '<input class="input invite-input" id="invite-code" data-input="invite-code" value="' + esc(val) + '" placeholder="SAKHI-7F3KQ9" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"' + (access.busy ? " disabled" : "") + ">" +
       (fromLink ? '<p class="hint" id="invite-from-link">Filled in from your invite link \ud83d\udc8c</p>' : "") +
       (access.error ? '<p class="invite-error" id="invite-error" role="alert">' + esc(access.error) + "</p>" : "") + "</div>" +
-      '<div class="ob-foot"><button class="btn btn-primary btn-block" data-act="invite-redeem" id="invite-submit"' + (access.busy || !val ? " disabled" : "") + ">" + (access.busy ? "Checking\u2026" : "Join " + esc(BRAND.name)) + "</button>" +
-      '<p class="tiny" style="text-align:center;margin-top:12px">No code yet? <button class="link" data-act="feedback" id="invite-feedback">Send us a note</button></p>' +
-      '<p class="tiny" style="text-align:center">An invite code only lets you in \u2014 it isn\u2019t a check of who you are. <a href="#privacy" id="invite-privacy">Privacy &amp; Terms</a></p>' +
+      '<button class="btn btn-primary btn-block" data-act="invite-redeem" id="invite-submit"' + (access.busy || !val ? " disabled" : "") + ">" + (access.busy ? "Checking\u2026" : "Join " + esc(BRAND.name)) + "</button></div>" +
+      wlHTML +
+      '<p class="tiny" style="text-align:center;margin-top:24px">An invite code only lets you in \u2014 it isn\u2019t a check of who you are. <a href="#privacy" id="invite-privacy">Privacy &amp; Terms</a></p>' +
       '<p class="tiny" style="text-align:center">Signed in as ' + esc(u.email || "your Google account") + ' \u00b7 <button class="link" data-act="sign-out" id="invite-signout">Sign out</button></p>' +
-      "</div></div></div>" };
+      "</div></div>" };
   };
   function promiseRow(emoji, bg, title, sub) {
     return '<div class="card promise-row"><span class="pi" style="background:' + bg + '">' + emoji + "</span><div><b>" + title + "</b><span>" + sub + "</span></div></div>";
@@ -898,7 +913,7 @@
       '<div class="feed">' + (posts.length ? posts.map(function (p) { return postCard(p); }).join("") : emptyState("🌱", "Be the first to post here", "Your question could help another mom feel less alone.")) + "</div></div>" };
   };
 
-  var askDraft = { circle: null, title: "", body: "", anon: null, nudge: null };
+  var askDraft = { circle: null, title: "", body: "", anon: null, nudge: null, intent: null };
   V.ask = function (circleId) {
     if (circleId && circle(circleId)) askDraft.circle = circleId;
     if (askDraft.anon === null) askDraft.anon = store.profile.anonDefault;
@@ -913,6 +928,9 @@
       '<div class="field"><label for="ask-title">Your question</label><input class="input" id="ask-title" data-input="ask-title" maxlength="140" placeholder="e.g. How did you handle the first week of daycare?" value="' + esc(askDraft.title) + '"></div>' +
       '<div class="field"><label for="ask-body">Add details <span class="tiny">(optional)</span></label><textarea class="input" id="ask-body" data-input="ask-body" maxlength="1200" placeholder="Share as much or as little as you like. This is a safe space.">' + esc(askDraft.body) + "</textarea>" +
       '<p class="demo-link">✨ <button class="link" data-act="ask-demo" id="kindness-demo">See the kindness check in action</button></p></div>' +
+      '<div style="margin-top:12px;margin-bottom:12px"><label style="font-weight:600;font-size:14px;color:var(--ink)">Tag your post <span class="tiny muted" style="font-weight:normal">(optional)</span></label><div class="chips" style="margin-top:8px">' +
+      '<button class="chip" data-act="ask-intent" data-val="vent" aria-pressed="' + (askDraft.intent === 'vent') + '">I just need to vent</button>' +
+      '<button class="chip" data-act="ask-intent" data-val="advice" aria-pressed="' + (askDraft.intent === 'advice') + '">I\'d like advice</button></div></div>' +
       '<div class="card toggle-row" style="margin-top:16px"><div class="grow"><b>Post anonymously</b><span>' + (askDraft.anon ? 'Hidden from other moms. ' + esc(BRAND.name) + '\'s moderators can see who posted, for safety.' : "Shown as " + esc(store.profile.nickname)) + "</span></div>" + switchEl(askDraft.anon, "ask-anon", "Post anonymously") + "</div>" +
       '<div class="anon-preview">' + avatar(askDraft.anon ? null : store.profile.nickname, D.me.hue, "sm") + "<span>Posting as <b>" + (askDraft.anon ? "Anonymous mom" : esc(store.profile.nickname)) + "</b></span></div>" +
       '<div id="ask-nudge-slot">' + (askDraft.nudge ? nudgeHtml(askDraft.body || askDraft.title, askDraft.nudge, "ask") : "") + "</div>" +
@@ -942,6 +960,7 @@
     return { tab: null, after: function () { var t = $("#reply-text"); if (t && t.value) { t.style.height = "auto"; t.style.height = Math.min(120, t.scrollHeight) + "px"; } }, html:
       '<div class="view" style="padding-bottom:0"><div class="backbar"><button class="icon-btn" data-act="back" aria-label="Back">' + icon("back") + '</button><span class="title">' + (c ? (c.emoji + " " + esc(c.name)) : "Community") + "</span></div>" +
       '<div class="q-detail">' + postCard(p, { full: true }) + "</div>" +
+      (p.intent === "vent" ? '<div style="background:var(--marigold-soft);padding:12px 18px;text-align:center;font-size:14px;color:#7A4F0C;font-weight:500;margin-bottom:8px">\ud83e\udec2 She\'s here to vent \u2014 offer support, not fixes \ud83d\udc9c</div>' : "") +
       '<div class="answers-head"><h2>' + ans.length + " supportive " + (ans.length === 1 ? "reply" : "replies") + '</h2><span class="tiny">Kindest first</span></div>' +
       '<div class="answers">' + (list || emptyState("🤍", "No replies yet", "Share what worked for you — even a hug helps.")) + "</div>" +
       '<div style="height:16px"></div>' +
@@ -1313,11 +1332,43 @@
         '<div class="mod-meta"><span class="tag teal">' + esc(feedbackKindLabel(f.kind)) + '</span><span class="tiny">' + esc(formatTime(f.createdAt)) + (f.contactOk ? " · OK to contact" : "") + "</span></div>" +
         '<p class="mod-body">' + esc(f.text) + "</p>" + (f.page ? '<p class="tiny">Sent from ' + esc(f.page) + "</p>" : "") + "</article>";
     }).join("");
-    var fbSection = isRealMode() ? '<div class="section-head" style="padding:0 18px"><h2>Feedback</h2><span class="muted">' + fb.length + "</span></div>" +
-      (fbList || emptyState("💬", "No feedback yet", "Notes from moms show up here, newest first.")) : "";
+    // Waitlist UI
+    var wl = isRealMode() ? (modState.waitlist || []) : [];
+    var wlList = wl.map(function(w) {
+      return '<article class="card mod-item" id="wl-' + esc(w.uid) + '">' +
+        '<div class="mod-meta"><span class="tiny">' + esc(formatTime(w.createdAt)) + "</span></div>" +
+        '<h3 class="mod-title">' + esc(w.name) + (w.city ? ' <span class="muted" style="font-weight:400">(' + esc(w.city) + ')</span>' : '') + "</h3>" +
+        (w.note ? '<p class="muted mod-body">' + esc(w.note) + "</p>" : "") +
+        '<div class="mod-actions" style="margin-top:12px">' +
+        '<button class="btn btn-ghost btn-sm" data-act="wl-copy-link">Copy invite link</button>' +
+        '<button class="btn btn-ghost btn-sm" style="color:var(--danger)" data-act="wl-remove" data-uid="' + esc(w.uid) + '">Remove</button>' +
+        "</div></article>";
+    }).join("");
+    var wlSection = isRealMode() ? '<div class="section-head" style="padding:0 18px;margin-top:24px"><h2>Waitlist</h2><span class="muted">' + wl.length + "</span></div>" +
+      (wlList || emptyState("\u23f3", "No one on the waitlist", "Waitlist requests will show up here.")) : "";
+
+    // Members UI
+    var memIds = Object.keys(modState.members || {});
+    var mems = memIds.map(function(uid) {
+      var m = modState.members[uid];
+      var p = modState.profiles[uid] || {};
+      return { uid: uid, code: m.code, joinedAt: m.joinedAt, nickname: p.nickname || 'Unknown', city: p.city || '' };
+    });
+    mems.sort(function(a, b) { return (b.joinedAt || 0) - (a.joinedAt || 0); });
+    var memList = mems.map(function(m) {
+      return '<div class="card mod-item" style="padding:12px 16px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<div><h3 style="margin:0;font-size:16px">' + esc(m.nickname) + '</h3><span class="tiny" style="color:var(--muted)">' + esc(m.city) + '</span></div>' +
+        '<div style="text-align:right"><span class="tag teal" style="margin-bottom:4px;display:inline-block">' + esc(m.code || 'Mod') + '</span><br><span class="tiny">' + esc(fmtDay(m.joinedAt)) + '</span></div>' +
+        '</div></div>';
+    }).join("");
+    var memSection = isRealMode() ? '<div class="section-head" style="padding:0 18px;margin-top:24px"><h2>Members</h2><span class="muted">' + mems.length + "</span></div>" +
+      '<div style="padding:0 18px">' + (memList || emptyState("\ud83d\udc65", "No members yet", "Joined members will show up here.")) + '</div>' : "";
+
+    var fbSection = isRealMode() ? '<div class="section-head" style="padding:0 18px;margin-top:24px"><h2>Feedback</h2><span class="muted">' + fb.length + "</span></div>" +
+      (fbList || emptyState("\ud83d\udcac", "No feedback yet", "Notes from moms show up here, newest first.")) : "";
     return { tab: "me", html: head +
       '<p class="muted" style="padding:0 18px 6px;font-size:14px">' + (isRealMode() ? "Reported posts, newest first. Removing deletes the post, its replies and its reports for everyone." : "Demo mode: reports you make on this device show up here.") + "</p>" +
-      (list || emptyState("🌿", "No open reports", "All clear. Thank you for keeping " + esc(BRAND.name) + " kind.")) + inviteSection() + fbSection + "</div>" };
+      (list || emptyState("\ud83c\udf3f", "No open reports", "All clear. Thank you for keeping " + esc(BRAND.name) + " kind.")) + wlSection + inviteSection() + memSection + fbSection + "</div>" };
   };
   // ---- Invite codes (moderators, real mode). Create / list / copy link / share /
   // disable / delete. Rules: only moderators can list or create (see /invites).
@@ -1896,18 +1947,18 @@
           if (!window.Backend.user) { toast("Please sign in to post"); go("#welcome"); break; }
           if (askDraft.saving) break;
           askDraft.saving = true; busy(el);
-          window.Backend.addPost(window.Backend.user.uid, authorName, isAnon, cId, askDraft.title.trim(), askDraft.body.trim(), meta, D.me.hue).then(function(docRef) {
-            askDraft = { circle: null, title: "", body: "", anon: null, nudge: null };
+          window.Backend.addPost(window.Backend.user.uid, authorName, isAnon, cId, askDraft.title.trim(), askDraft.body.trim(), meta, D.me.hue, askDraft.intent).then(function(docRef) {
+            askDraft = { circle: null, title: "", body: "", anon: null, nudge: null, intent: null };
             go("#q/" + docRef.id); toast("Posted to " + cn + " 💛");
           }).catch(function (e) { askDraft.saving = false; failToast("post", el)(e); });
           break;
         }
 
         var p = { id: "u" + Date.now(), circle: cId, anon: isAnon, author: authorName, hue: D.me.hue,
-          meta: meta, time: "now", title: askDraft.title.trim(), body: askDraft.body.trim(),
+          meta: meta, time: "now", title: askDraft.title.trim(), body: askDraft.body.trim(), intent: askDraft.intent,
           reactions: { hug: 0, been: 0, helpful: 0 }, answers: [] };
         store.posts.unshift(p); save();
-        askDraft = { circle: null, title: "", body: "", anon: null, nudge: null };
+        askDraft = { circle: null, title: "", body: "", anon: null, nudge: null, intent: null };
         go("#q/" + p.id); toast("Posted to " + cn + " 💛"); break;
       }
       case "kind-use": {
@@ -1915,6 +1966,11 @@
         if (scope === "ask") { askDraft.title = softenText(askDraft.title, kindnessScan(askDraft.title)); askDraft.body = softenText(askDraft.body, askDraft.nudge); askDraft.nudge = null; }
         else { replyDraft.text = softenText(replyDraft.text, replyDraft.nudge); replyDraft.nudge = null; }
         rerender(); toast("Thank you for keeping it kind 💛"); break;
+      }
+      case "ask-intent": {
+        var val = el.getAttribute("data-val");
+        askDraft.intent = (askDraft.intent === val) ? null : val;
+        rerender(); break;
       }
       case "kind-edit": {
         var sc = el.getAttribute("data-scope");
@@ -2111,6 +2167,27 @@
         break;
       }
       case "soon": toast("Coming soon in the real app ✨"); break;
+      case "wl-submit": {
+        if (!window.Backend || !window.Backend.isReal) { toast("Waitlist not wired in demo"); return; }
+        var name = document.getElementById("wl-name") ? document.getElementById("wl-name").value.trim() : "";
+        var city = document.getElementById("wl-city") ? document.getElementById("wl-city").value.trim() : "";
+        var note = document.getElementById("wl-note") ? document.getElementById("wl-note").value.trim() : "";
+        if (!name) { toast("Please let us know your name or nickname"); return; }
+        access.busy = true; el.disabled = true; rerender();
+        window.Backend.requestInvite(name, city, note).then(function() {
+          store.waitlisted = true; save(); access.busy = false; rerender();
+        }).catch(function(e) {
+          access.busy = false; access.error = String(e.message || e); rerender();
+        });
+        break;
+      }
+      case "wl-remove": {
+        if (!confirm("Remove this person from the waitlist?")) return;
+        if (window.Backend && window.Backend.isReal) {
+          window.Backend.deleteWaitlist(el.getAttribute("data-uid"));
+        }
+        break;
+      }
       case "invite-redeem": { var ic = $("#invite-code"); redeemInvite(ic ? ic.value : access.code); break; }
       case "invite-create": createInviteFromForm(el); break;
       case "invite-copy": copyInvite(el.getAttribute("data-code")); break;
@@ -2308,7 +2385,10 @@
     if (modState.unsub) { modState.unsub(); modState.unsub = null; }
     if (modState.unsubFb) { modState.unsubFb(); modState.unsubFb = null; }
     if (modState.unsubInv) { modState.unsubInv(); modState.unsubInv = null; }
-    modState.isMod = false; modState.reports = []; modState.postCache = {}; modState.fetching = {}; modState.feedback = []; modState.invites = [];
+    if (modState.unsubWl) { modState.unsubWl(); modState.unsubWl = null; }
+    if (modState.unsubMem) { modState.unsubMem(); modState.unsubMem = null; }
+    if (modState.unsubPro) { modState.unsubPro(); modState.unsubPro = null; }
+    modState.isMod = false; modState.reports = []; modState.postCache = {}; modState.fetching = {}; modState.feedback = []; modState.invites = []; modState.waitlist = []; modState.members = {}; modState.profiles = {};
     if (!u || !B || !B.checkModerator) return;
     B.checkModerator(u.uid).then(function (isMod) {
       if (!isMod || !B.user || B.user.uid !== u.uid) return;
@@ -2325,6 +2405,18 @@
         modState.invites = items;
         if (parseHash().name === "mod") rerender();
       }, function (e) { console.warn("MomSakhi: couldn't load invite codes (rules not published yet?)", e); });
+      if (B.listenWaitlist) modState.unsubWl = B.listenWaitlist(function (items) {
+        modState.waitlist = items;
+        if (parseHash().name === "mod") rerender();
+      }, function(e) { console.warn("couldn't load waitlist", e); });
+      if (B.listenMembers) modState.unsubMem = B.listenMembers(function (items) {
+        modState.members = items;
+        if (parseHash().name === "mod") rerender();
+      }, function(e) { console.warn("couldn't load members", e); });
+      if (B.listenProfiles) modState.unsubPro = B.listenProfiles(function (items) {
+        modState.profiles = items;
+        if (parseHash().name === "mod") rerender();
+      }, function(e) { console.warn("couldn't load profiles", e); });
       var n2 = parseHash().name; if (n2 === "mod" || n2 === "me") rerender();
     }).catch(function (e) { console.warn("MomSakhi: moderator check failed (treated as not a moderator)", e); });
   }

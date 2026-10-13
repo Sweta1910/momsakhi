@@ -48,7 +48,13 @@
     createInvite: null,
     listenInvites: null,
     disableInvite: null,
-    deleteInvite: null
+    deleteInvite: null,
+    updateInviteSeats: null,
+    requestInvite: null,
+    listenWaitlist: null,
+    deleteWaitlist: null,
+    listenMembers: null,
+    listenProfiles: null
   };
 
   // Popup failures that mean "this browser can't do popups", not "the mom said no".
@@ -76,7 +82,7 @@
   // could link "Anonymous mom" posts to the same account's named posts. Who wrote
   // it lives only in the moderator-only /postAuthors record (see authorRecord and
   // firestore.rules). Named posts keep uid, as before. `ts` is serverTimestamp().
-  function postPayload(uid, authorName, isAnon, circle, title, body, meta, hue, ts) {
+  function postPayload(uid, authorName, isAnon, circle, title, body, meta, hue, intent, ts) {
     var anon = !!isAnon;
     var data = {
       author: anon ? null : str(authorName, "Mom"),
@@ -90,6 +96,7 @@
       replyCount: 0
     };
     if (!anon) data.uid = uid;
+    if (intent === "vent" || intent === "advice") data.intent = intent;
     return data;
   }
   function replyPayload(uid, authorName, isAnon, body, hue, ts) {
@@ -186,8 +193,8 @@
       // uid-free post AND /postAuthors/{postId} {uid}; rules accept each half only
       // alongside the other, so an anon post always has a (private) author record
       // and nobody can claim someone else's post. Resolves with the post's ref.
-      Backend.addPost = function(uid, authorName, isAnon, circle, title, body, meta, hue) {
-        var data = postPayload(uid, authorName, isAnon, circle, title, body, meta, hue, serverTimestamp());
+      Backend.addPost = function(uid, authorName, isAnon, circle, title, body, meta, hue, intent) {
+        var data = postPayload(uid, authorName, isAnon, circle, title, body, meta, hue, intent, serverTimestamp());
         if (!data.anon) return addDoc(collection(db, "posts"), data);
         var postRef = doc(collection(db, "posts"));
         var batch = writeBatch(db);
@@ -444,6 +451,49 @@
       };
       Backend.deleteInvite = function(code) {
         return deleteDoc(doc(db, "invites", code));
+      };
+      Backend.updateInviteSeats = function(code, newMaxUses) {
+        return updateDoc(doc(db, "invites", code), { maxUses: newMaxUses });
+      };
+      Backend.requestInvite = function(name, city, note) {
+        if (!Backend.user) return Promise.reject(new Error("No user"));
+        return setDoc(doc(db, "waitlist", Backend.user.uid), {
+          name: String(name || "").slice(0, 50),
+          city: String(city || "").slice(0, 50),
+          note: String(note || "").slice(0, 100),
+          createdAt: serverTimestamp()
+        });
+      };
+      Backend.listenWaitlist = function(cb, onError) {
+        var q = query(collection(db, "waitlist"), orderBy("createdAt", "asc"), limit(200));
+        return onSnapshot(q, function(snap) {
+          var items = [];
+          snap.forEach(function(d) {
+            var data = d.data({ serverTimestamps: "estimate" });
+            data.uid = d.id;
+            items.push(data);
+          });
+          cb(items);
+        }, function(e) {
+          if (onError) onError(e);
+        });
+      };
+      Backend.deleteWaitlist = function(uid) {
+        return deleteDoc(doc(db, "waitlist", uid));
+      };
+      Backend.listenMembers = function(cb, onError) {
+        return onSnapshot(collection(db, "members"), function(snap) {
+          var items = {};
+          snap.forEach(function(d) { items[d.id] = d.data({ serverTimestamps: "estimate" }); });
+          cb(items);
+        }, function(e) { if (onError) onError(e); });
+      };
+      Backend.listenProfiles = function(cb, onError) {
+        return onSnapshot(collection(db, "profiles"), function(snap) {
+          var items = {};
+          snap.forEach(function(d) { items[d.id] = d.data(); });
+          cb(items);
+        }, function(e) { if (onError) onError(e); });
       };
 
     }).catch(function(e) {
