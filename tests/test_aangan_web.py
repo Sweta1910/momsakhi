@@ -1340,8 +1340,10 @@ class TestInAppBrowserWarning(unittest.TestCase):
     disallowed_useragent). On Instagram/Facebook/Messenger/LinkedIn/Snapchat/
     TikTok/LINE in-app browsers and generic Android WebView the welcome screen
     shows "To sign in, open MomSakhi in Chrome or Safari" with Copy link (and
-    Open in Chrome on Android). Real browsers and WhatsApp (no reliable UA
-    marker) must NOT be warned. A webview-type sign-in error shows the same card."""
+    Open in Chrome on Android). Real browsers and Custom Tabs / SFSafariViewController
+    (how WhatsApp usually opens links: no app token in the UA) must NOT be warned;
+    since 2026-10-14 webviews that name WhatsApp/Telegram/X/Pinterest are.
+    A webview-type sign-in error shows the same card."""
 
     def _run(self, body):
         node = _node()
@@ -1438,13 +1440,90 @@ ok(h.includes('id="iab-card"') && h.includes("inside this app's built-in browser
 
     def test_sign_in_paths_route_webview_errors_to_card(self):
         app = _read("app.js")
-        self.assertEqual(app.count("if (isWebviewAuthError(e))"), 2, "popup path and redirect path")
+        # 2026-10-14: both paths (popup + getRedirectResult) go through ONE handler,
+        # which sends webview errors to the card and everything else to a message.
+        self.assertEqual(app.count("if (isWebviewAuthError(e))"), 1, "single sign-in error handler")
+        self.assertIn(".catch(function(e) { handleSignInError(e, btn); })", app)
+        self.assertIn(".catch(function (e) { handleSignInError(e, null); })", app)
         self.assertIn('case "copy-app-link"', app)
         self.assertIn("navigator.clipboard.writeText(appUrl).then(copied, selectCopy)", app)
         self.assertIn('document.execCommand("copy")', app)
-        self.assertNotIn("WhatsApp", re.search(r"var IAB_RE = (.*);", app).group(1))
-        for sel in (".iab-card", ".iab-actions", ".iab-link"):
+        iab = re.search(r"var IAB_RE = (.*);", app).group(1)
+        for token in ("WhatsApp", "Telegram", "Twitter", "Pinterest"):
+            self.assertIn(token, iab)
+        self.assertNotIn("GSA", iab)
+        for sel in (".iab-card", ".iab-actions", ".iab-link", ".signin-error"):
             self.assertIn(sel, _read("styles.css"))
+
+    def test_app_token_webviews_warned_custom_tabs_not(self):
+        # WhatsApp/Telegram/X/Pinterest webviews name the app in the UA; Custom
+        # Tabs / SFSafariViewController do not (whatsappLike/whatsappIOS above).
+        self._run(r"""
+const A = boot('');
+const more = {
+  'WhatsApp': 'Mozilla/5.0 (Linux; Android 14; SM-A546E Build/UP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0.6668.81 Mobile Safari/537.36 WhatsApp/2.24.20.89',
+  'Telegram': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Telegram-iOS/11.1',
+  'X (Twitter)': 'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0 Mobile Safari/537.36 TwitterAndroid',
+  'Pinterest': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [Pinterest/iOS]'
+};
+Object.keys(more).forEach(function (name) {
+  const r = A.inAppBrowser(more[name]);
+  ok(r && r.name === name, name + ' -> ' + JSON.stringify(r));
+});
+const h = boot(more.WhatsApp).V.welcome().html;
+ok(h.includes('id="iab-card"') && h.includes("inside WhatsApp's built-in browser") && h.includes('id="iab-chrome"'), 'WhatsApp card: ' + h);
+ok(A.inAppBrowser('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/129 Mobile Safari/537.36 GSA/15.40') === null, 'Google app not warned');
+""")
+
+
+class TestGoogleOnlySignIn(unittest.TestCase):
+    """2026-10-14: a real beta mom tapped the demo-leftover "Continue with phone"
+    (fake number, fake code) and got stuck. Real mode is Google-only: no phone
+    button, no "I already have an account", no phone form on the sign-in step,
+    and every Google sign-in failure shows a kind message saying what to do.
+    The prototype (demo mode) keeps the phone path."""
+
+    def _run(self, body):
+        TestInAppBrowserWarning._run(self, body)
+
+    def test_welcome_real_mode_google_only_demo_keeps_phone(self):
+        self._run(r"""
+const real = boot(UA.androidChrome).V.welcome().html;
+ok(real.includes('id="google-signin"') && real.includes('Continue with Google'), 'google button');
+['id="get-started"', 'id="have-account"', 'Continue with phone', 'start-phone-onboard', 'auth-divider'].forEach(function (s) {
+  ok(!real.includes(s), 'real welcome must not include ' + s);
+});
+ok(real.includes('Invite-only during the beta · sign in with Google, then enter your invite code'), 'mode line');
+ok(!/phone/i.test(real.replace(/iPhone/g, '')), 'no phone claims on real welcome');
+""")
+
+    def test_verify_step_real_mode_has_no_phone_form(self):
+        self._run(r"""
+const h = boot(UA.androidChrome).V['onboard/verify']().html;
+ok(h.includes('id="verify-google"'), 'google button on sign-in step: ' + h);
+['555-0142', 'id="verify-phone"', 'Send code', 'Verify your phone'].forEach(function (s) { ok(!h.includes(s), 'real verify must not include ' + s); });
+ok(h.includes('id="enter-app" disabled'), 'cannot enter without Google');
+""")
+
+    def test_sign_in_failure_messages(self):
+        self._run(r"""
+const A = boot(UA.androidChrome);
+const m = A.signInFailMessage;
+['auth/popup-closed-by-user', 'auth/popup-blocked', 'auth/cancelled-popup-request'].forEach(function (c) {
+  ok(m({ code: c }).includes('Tap Continue with Google again and allow the pop-up'), c);
+});
+ok(m({ code: 'auth/network-request-failed' }).includes('Check your internet connection'), 'network');
+ok(m({ code: 'auth/unauthorized-domain' }) === "Sign-in didn't work (unauthorized-domain). Try opening this link in Chrome or Safari.", m({ code: 'auth/unauthorized-domain' }));
+ok(m(null).includes('Try opening this link in Chrome or Safari'), 'unknown error');
+""")
+
+    def test_handlers_guarded_and_phone_leftovers_cleared(self):
+        app = _read("app.js")
+        for act in ("start-phone-onboard", "skip-onboarding", "verify-phone"):
+            block = app.split('case "%s":' % act, 1)[1][:200]
+            self.assertIn("if (isRealMode()) { signInWithGoogle(null, el); break; }", block, act)
+        self.assertIn('if (store.authMethod === "phone" || (store.verify && store.verify.phone)) {', app)
+        self.assertIn('signInErrorCard() +', app)
 
 
 if __name__ == "__main__":

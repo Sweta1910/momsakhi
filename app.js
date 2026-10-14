@@ -629,13 +629,16 @@
   // ------------------------------------------- in-app browser (webview) card
   // Google refuses OAuth inside embedded webviews (403 disallowed_useragent), so
   // a mom who taps the link inside Instagram/Facebook/etc. could never sign in.
-  // We warn ONLY on browsers with a reliable UA marker. WhatsApp's in-app
-  // browser has no reliable marker, so it is deliberately NOT matched (a false
-  // warning there would scare off the moms we invite by WhatsApp). Generic
-  // Android WebView ("; wv)") is matched: Google blocks it too.
+  // We warn ONLY on browsers with a UA marker. 2026-10-14 (a beta mom invited by
+  // WhatsApp couldn't sign in): WhatsApp, Telegram, Twitter/X and Pinterest are
+  // matched on their app token. Usually these apps hand links to Chrome Custom
+  // Tabs / SFSafariViewController, whose UA is plain Chrome/Safari with no token,
+  // so those are NOT warned (Google sign-in works there); only a webview that
+  // names the app is. Generic Android WebView ("; wv)") is matched: Google
+  // blocks it too. "GSA/" (the Google app) is deliberately NOT matched.
   // The same card also appears after a sign-in error that means "webview"
   // (signInBlocked), which covers in-app browsers we can't recognise.
-  var IAB_RE = /FBAN|FBAV|FB_IAB|Instagram|LinkedInApp|Snapchat|musical_ly|TikTok|BytedanceWebview|Line\/|; wv\)/;
+  var IAB_RE = /FBAN|FBAV|FB_IAB|Instagram|LinkedInApp|Snapchat|musical_ly|TikTok|BytedanceWebview|Line\/|WhatsApp|Telegram|Twitter|Pinterest|; wv\)/;
   var signInBlocked = false;
   function inAppBrowser(ua) {
     ua = ua || "";
@@ -646,7 +649,11 @@
       : /LinkedInApp/.test(ua) ? "LinkedIn"
       : /Snapchat/.test(ua) ? "Snapchat"
       : /musical_ly|TikTok|BytedanceWebview/.test(ua) ? "TikTok"
-      : /Line\//.test(ua) ? "LINE" : "";
+      : /Line\//.test(ua) ? "LINE"
+      : /WhatsApp/.test(ua) ? "WhatsApp"
+      : /Telegram/.test(ua) ? "Telegram"
+      : /Twitter/.test(ua) ? "X (Twitter)"
+      : /Pinterest/.test(ua) ? "Pinterest" : "";
     return { name: name, os: /Android/.test(ua) ? "android" : isIOS(ua) ? "ios" : "other" };
   }
   function isWebviewAuthError(e) {
@@ -691,6 +698,35 @@
     var card = $("#iab-card"); if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" });
   }
 
+  // 2026-10-14: a Google sign-in failure must never be silent or cryptic. Pure
+  // (tests call it): Firebase error -> a kind sentence that says what to do.
+  // Webview errors never get here -- they show the in-app-browser card instead.
+  // popup-blocked only arrives if Backend's redirect fallback failed too.
+  var SIGNIN_POPUP_CODES = ["auth/popup-closed-by-user", "auth/popup-blocked", "auth/cancelled-popup-request", "auth/user-cancelled"];
+  function signInFailMessage(e) {
+    var code = (e && e.code) || "";
+    if (SIGNIN_POPUP_CODES.indexOf(code) >= 0)
+      return "The Google sign-in window closed before it finished. Tap Continue with Google again and allow the pop-up.";
+    if (code === "auth/network-request-failed" || (typeof navigator !== "undefined" && navigator.onLine === false))
+      return "We couldn't reach Google. Check your internet connection, then tap Continue with Google again.";
+    return "Sign-in didn't work (" + errCode(e) + "). Try opening this link in Chrome or Safari.";
+  }
+  // Last failure, shown as a card on welcome / the sign-in step until she taps
+  // Google again (a toast alone disappears after 2.6s and is easy to miss).
+  var signInError = "";
+  function signInErrorCard() {
+    return signInError ? '<div class="card iab-card signin-error" id="signin-error" role="alert"><b>Let\u2019s try that again</b><span>' + esc(signInError) + "</span></div>" : "";
+  }
+  function showSignInFailed(e, btn) {
+    console.error("MomSakhi: Google sign-in failed", e);
+    if (btn) btn.disabled = false;
+    signInError = signInFailMessage(e);
+    var at = parseHash().name;
+    if (at === "welcome" || at === "onboard/verify") render(true); else go("#welcome");
+    var card = $("#signin-error"); if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" });
+    toast(signInError);
+  }
+
   V.welcome = function () {
     return { tab: null, html:
       '<div class="welcome view">' +
@@ -708,10 +744,14 @@
       "</div>" +
       '<div class="welcome-cta">' +
       '<div class="welcome-cta-header"><h3>Join the circle</h3><p>For moms · Kind · Moderated</p></div>' +
+      signInErrorCard() +
       '<button class="btn btn-google btn-block" data-act="google-signin" id="google-signin">' + googleIcon(18) + "<span>Continue with Google</span></button>" +
-      '<div class="auth-divider"><span>or</span></div>' +
+      // 2026-10-14: real mode is Google-only. The phone path was a demo leftover
+      // (fake number + fake code) that dead-ended a real beta mom, and "I already
+      // have an account" skipped sign-in altogether. The prototype keeps both.
+      (isRealMode() ? "" : '<div class="auth-divider"><span>or</span></div>' +
       '<button class="btn btn-primary btn-block" data-act="start-phone-onboard" id="get-started">Continue with phone</button>' +
-      '<button class="btn btn-ghost btn-block" data-act="skip-onboarding" id="have-account">I already have an account</button>' +
+      '<button class="btn btn-ghost btn-block" data-act="skip-onboarding" id="have-account">I already have an account</button>') +
       '<p class="tiny" style="margin-bottom:8px;font-weight:600">Moms supporting moms — not a replacement for your doctor or therapist.</p>' +
       '<p class="tiny terms-line" id="welcome-terms">By continuing you agree to our <a href="#privacy" id="welcome-privacy">Terms &amp; Privacy</a>.</p>' +
       '<p class="tiny" id="welcome-mode-line">' + (isRealMode() ? "Invite-only during the beta · sign in with Google, then enter your invite code" : "Prototype · all people, posts and places are fictional demo data") + '</p>' +
@@ -806,7 +846,9 @@
 
   V["onboard/verify"] = function () {
     var v = store.verify;
-    var isGoogle = !!(v.google || store.authMethod === "google");
+    var real = isRealMode();
+    // Real mode trusts only the live Firebase user, never the stored demo flags.
+    var isGoogle = real ? !!(window.Backend && window.Backend.user) : !!(v.google || store.authMethod === "google");
     var phoneState = v.phone ? '<span class="done-badge">' + icon("check") + "Phone verified</span>"
       : '<div class="phone-input"><input class="input cc" value="+1" aria-label="Country code" readonly><input class="input" value="(650) 555-0142" aria-label="Phone number" inputmode="tel"></div>' +
         '<button class="btn btn-ghost btn-sm" style="margin-top:10px" data-act="verify-phone" id="verify-phone">Send code</button>';
@@ -816,14 +858,20 @@
     // number, NOT that she is a woman or a mom, so no "verified mom" / "women-only"
     // claims anywhere (the welcome promise, this step, Me, the message policy).
     if (isGoogle) {
-      verifyCard = '<div class="card verify-card"><span class="vi" style="background:#fff;border:1px solid #dadce0">' + googleIcon(22) + '</span><div class="grow"><b>Signed in with Google</b><span class="tiny">' + esc(store.profile.email || "priya.sharma@gmail.com") + '</span><div class="state"><span class="done-badge">' + icon("check") + "Signed in with Google</span></div></div></div>";
+      var email = real ? (window.Backend.user.email || store.profile.email || "") : (store.profile.email || "priya.sharma@gmail.com");
+      verifyCard = '<div class="card verify-card"><span class="vi" style="background:#fff;border:1px solid #dadce0">' + googleIcon(22) + '</span><div class="grow"><b>Signed in with Google</b><span class="tiny">' + esc(email) + '</span><div class="state"><span class="done-badge">' + icon("check") + "Signed in with Google</span></div></div></div>";
+    } else if (real) {
+      // 2026-10-14: real mode never shows the demo phone form (fake number, fake
+      // code) that dead-ended a beta mom -- Google sign-in only.
+      verifyCard = signInErrorCard() +
+        '<button class="btn btn-google btn-block" data-act="google-signin" id="verify-google">' + googleIcon(18) + "<span>Continue with Google</span></button>";
     } else {
       verifyCard = '<div class="card verify-card"><span class="vi">' + icon("phone") + '</span><div class="grow"><b>Verify your phone</b><span class="tiny">One account per person, please.</span><div class="state">' + phoneState + "</div></div></div>" +
         (v.phone ? "" : '<div class="auth-divider" style="margin:14px 0 10px"><span>or</span></div>' +
           '<button class="btn btn-google btn-block btn-sm" data-act="google-signin" id="verify-google">' + googleIcon(16) + '<span>Sign in with Google instead</span></button>');
     }
 
-    var canEnter = isGoogle || v.phone;
+    var canEnter = isGoogle || (!real && v.phone);
     return { tab: null, html:
       '<div class="view">' + obBack("#onboard/about") + '<div class="ob">' + steps(3) +
       "<h1>Almost there</h1>" +
@@ -1734,6 +1782,15 @@
     access.autoTried = true;
     redeemInvite(code);
   }
+  // One place for every Google sign-in failure (popup path + redirect path).
+  // Webview refusals get the in-app-browser card; everything else gets a kind,
+  // specific message as a toast AND a card that stays put (showSignInFailed).
+  function handleSignInError(e, btn) {
+    if (btn) btn.disabled = false;
+    if (!e) return;
+    if (isWebviewAuthError(e)) { console.warn("MomSakhi: sign-in blocked in this browser", e); showSignInBlocked(); return; }
+    showSignInFailed(e, btn);
+  }
   function signInWithGoogle(account, btn) {
     if (window.Backend && window.Backend.isReal) {
       busy(btn);
@@ -1743,12 +1800,7 @@
          if (btn) btn.disabled = false;
          if (!result || result.redirecting || !result.user) return;
          return afterGoogleSignIn(result.user);
-      }).catch(function(e) {
-         if (btn) btn.disabled = false;
-         if (e && e.code === "auth/popup-closed-by-user") { toast("Sign-in cancelled"); return; }
-         if (isWebviewAuthError(e)) { console.warn("MomSakhi: sign-in blocked in this browser", e); showSignInBlocked(); return; }
-         failToast("sign you in", btn)(e);
-      });
+      }).catch(function(e) { handleSignInError(e, btn); });
       return;
     }
     if (!account) {
@@ -1802,7 +1854,12 @@
     switch (act) {
       case "go": go(el.getAttribute("data-to")); break;
       case "back": if (history.length > 1) history.back(); else go(store.onboarded ? "#home" : "#welcome"); break;
-      case "google-signin": signInWithGoogle(undefined, el); break;
+      case "google-signin": {
+        // A fresh try: drop the last failure card right away (no re-render, so the
+        // popup still opens inside this same tap -- browsers block it otherwise).
+        if (signInError) { signInError = ""; var sec = $("#signin-error"); if (sec) sec.remove(); }
+        signInWithGoogle(undefined, el); break;
+      }
       case "copy-app-link": {
         var appUrl = appLink(location);
         var copied = function () { toast("Link copied ✓ Paste it in Chrome or Safari"); };
@@ -1841,8 +1898,11 @@
         break;
       }
       case "start-phone-onboard":
+        if (isRealMode()) { signInWithGoogle(null, el); break; }
         store.authMethod = "phone"; save(); go("#onboard/city"); break;
-      case "skip-onboarding": store.onboarded = true; save(); go("#home"); break;
+      case "skip-onboarding":
+        if (isRealMode()) { signInWithGoogle(null, el); break; }
+        store.onboarded = true; save(); go("#home"); break;
       case "city-continue": { var ci = $("#city-input"); saveCity(ci ? ci.value : ""); go("#onboard/about"); break; }
       case "city-skip": saveCity(""); go("#onboard/about"); break;
       // Gate card and Me sheet both save through here; re-render opens the real
@@ -1892,6 +1952,7 @@
         store.profile.anonDefault = !store.profile.anonDefault; askDraft.anon = null; save();
         el.setAttribute("aria-checked", store.profile.anonDefault); break;
       case "verify-phone":
+        if (isRealMode()) { signInWithGoogle(null, el); break; }
         store.authMethod = "phone";
         el.textContent = "Sending…"; el.disabled = true;
         setTimeout(function () { store.verify.phone = true; save(); rerender(); toast("Code 482 913 auto-filled (demo) ✓"); }, 700); break;
@@ -2476,14 +2537,24 @@
     if (window.Backend && window.Backend.ready) {
       window.Backend.ready.then(function() {
         if (window.Backend.isReal) {
+          // 2026-10-14: a mom who tapped the old demo phone path has
+          // authMethod "phone" (and maybe onboarded via "I already have an
+          // account") in localStorage. Real mode is Google-only: forget that
+          // and send her back to the welcome screen. A Google profile, if she
+          // has one, sets onboarded again in onAuth below.
+          if (store.authMethod === "phone" || (store.verify && store.verify.phone)) {
+            store.authMethod = null;
+            store.verify = { google: !!(store.verify && store.verify.google), phone: false };
+            if (!store.verify.google) store.onboarded = false;
+            save();
+            var at = parseHash().name;
+            if (!store.onboarded && (at.indexOf("onboard/") === 0 || at === "home")) go("#welcome");
+          }
           showcase();
           // Coming back from a signInWithRedirect fallback: finish sign-in here.
           window.Backend.getRedirectResult().then(function (result) {
             if (result && result.user) return afterGoogleSignIn(result.user);
-          }).catch(function (e) {
-            if (isWebviewAuthError(e)) { showSignInBlocked(); return; }
-            failToast("sign you in", null)(e);
-          });
+          }).catch(function (e) { handleSignInError(e, null); });
           window.Backend.onAuth(function(u) {
             window.Backend.user = u;
             resetReactions();
@@ -2532,7 +2603,7 @@
     syncModerator: syncModerator, V: V, isRealMode: isRealMode, cleanCity: cleanCity, saveCity: saveCity,
     cleanNick: cleanNick, saveNickname: saveNickname, nickname: function () { return store.profile.nickname; },
     inAppBrowser: inAppBrowser, isWebviewAuthError: isWebviewAuthError, appLink: appLink, chromeIntentUrl: chromeIntentUrl,
-    showSignInBlocked: showSignInBlocked,
+    showSignInBlocked: showSignInBlocked, signInFailMessage: signInFailMessage, handleSignInError: handleSignInError,
     newInviteCode: newInviteCode, normalizeInviteCode: normalizeInviteCode, extractInvite: extractInvite,
     inviteStatus: inviteStatus, inviteLink: inviteLink, pendingInvite: pendingInvite, gateOn: gateOn,
     INVITE_LINK: INVITE_LINK, INVITE_ERR: INVITE_ERR, _access: function () { return access; }, _modState: modState,
