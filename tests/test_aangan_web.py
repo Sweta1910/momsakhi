@@ -1526,6 +1526,74 @@ ok(m(null).includes('Try opening this link in Chrome or Safari'), 'unknown error
         self.assertIn('signInErrorCard() +', app)
 
 
+class TestSeo(unittest.TestCase):
+    """2026-10-14: crawlability for https://sweta1910.github.io/momsakhi/ --
+    robots.txt + sitemap.xml, canonical / og / twitter / JSON-LD in <head>, a
+    1200x630 share image, and a static (server-rendered) About section that
+    app.js keeps under the welcome view. The worker never caches SEO files."""
+    SITE = "https://sweta1910.github.io/momsakhi/"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = _read("index.html")
+        cls.sw = _read("sw.js")
+        cls.app = _read("app.js")
+
+    def test_robots_and_sitemap(self):
+        robots = _read("robots.txt")
+        self.assertIn("User-agent: *\nAllow: /", robots)
+        self.assertIn("Sitemap: %ssitemap.xml" % self.SITE, robots)
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(_read("sitemap.xml").encode("utf-8"))
+        ns = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+        self.assertEqual([u.find(ns + "loc").text for u in root.findall(ns + "url")], [self.SITE, self.SITE + "privacy/"])
+
+    def test_head_tags(self):
+        h = self.html
+        self.assertIn('<link rel="canonical" href="%s">' % self.SITE, h)
+        self.assertIn('<meta property="og:url" content="%s">' % self.SITE, h)
+        self.assertIn('<meta property="og:image" content="%sicons/og-image.png">' % self.SITE, h)
+        self.assertIn('<meta name="twitter:card" content="summary_large_image">', h)
+        self.assertIn('<meta name="twitter:image" content="%sicons/og-image.png">' % self.SITE, h)
+        self.assertIn('<meta name="theme-color" content="#FFF7EE">', h)
+
+    def test_json_ld_matches_meta_description(self):
+        ld = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', self.html, re.S).group(1))
+        desc = re.search(r'<meta name="description" content="([^"]+)"', self.html).group(1)
+        nodes = {n["@type"]: n for n in ld["@graph"]}
+        self.assertEqual(set(nodes), {"WebSite", "Organization"})
+        for n in nodes.values():
+            self.assertEqual((n["name"], n["url"], n["description"]), ("MomSakhi", self.SITE, desc))
+        self.assertNotRegex(json.dumps(ld), r"(?i)verified|women.only")
+
+    def test_og_image_is_1200x630_png(self):
+        with open(os.path.join(APP_DIR, "icons", "og-image.png"), "rb") as f:
+            head = f.read(24)
+        self.assertEqual(head[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual((int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")), (1200, 630))
+
+    def test_static_about_section_kept_by_app(self):
+        m = re.search(r'<main class="screen" id="screen" tabindex="-1">(.*?)</main>', self.html, re.S)
+        self.assertTrue(m, "About section must be server-rendered inside #screen")
+        about = m.group(1)
+        for s in ('id="about-momsakhi"', "A sakhi for every stage of motherhood.",
+                  "Share anything. No judgment. You don't have to carry it alone.",
+                  "moderated community", "post anonymously", "invite-only during the beta"):
+            self.assertIn(s, about)
+        self.assertNotRegex(about, r"(?i)verified|women.only")
+        self.assertIn('document.getElementById("about-momsakhi")', self.app)
+        self.assertIn('if (aboutNode && r.name === "welcome") { var wv = screen.querySelector(".welcome"); if (wv) wv.appendChild(aboutNode); }', self.app)
+        self.assertIn(".about-static", _read("styles.css"))
+        self.assertIn("align-items: safe center;", _read("styles.css"))
+
+    def test_service_worker_skips_seo_files(self):
+        self.assertIn(r"var SEO_FILES = /\/(robots\.txt|sitemap\.xml|icons\/og-image\.png)$/;", self.sw)
+        self.assertIn("if (SEO_FILES.test(url.pathname)) return;", self.sw)
+        shell = re.search(r"var SHELL = \[(.*?)\];", self.sw, re.S).group(1)
+        for f in ("robots.txt", "sitemap.xml", "og-image"):
+            self.assertNotIn(f, shell)
+
+
 if __name__ == "__main__":
     unittest.main()
 

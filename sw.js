@@ -17,7 +17,7 @@
  * the new worker; skipWaiting + clients.claim make it take over immediately
  * and old shell caches are deleted on activate.
  */
-var VERSION = "753519a";
+var VERSION = "761bc18";
 var CACHE = "momsakhi-shell-" + VERSION;
 var SHELL = [
   "./",
@@ -36,6 +36,9 @@ var SHELL = [
 // Belt and braces: even if one of these were ever served same-origin (a proxy,
 // an emulator on the same host), the worker must not intercept it.
 var NEVER = /firestore|firebase|googleapis|gstatic|google\.com|identitytoolkit|securetoken|__\/auth/i;
+// SEO files are for crawlers and link previews (which never run this worker);
+// a browser fetching them always gets the deployed bytes, never a cached copy.
+var SEO_FILES = /\/(robots\.txt|sitemap\.xml|icons\/og-image\.png)$/;
 
 self.addEventListener("install", function (event) {
   event.waitUntil(
@@ -85,6 +88,7 @@ self.addEventListener("fetch", function (event) {
   var url = new URL(req.url);
   if (url.origin !== self.location.origin) return;  // cross-origin: hands off
   if (NEVER.test(url.pathname + url.search)) return;
+  if (SEO_FILES.test(url.pathname)) return;
   var isHtml = req.mode === "navigate" || (req.headers.get("accept") || "").indexOf("text/html") >= 0;
   if (isHtml) { event.respondWith(networkFirst(req)); return; }
   if (url.search.indexOf("v=") >= 0) { event.respondWith(cacheFirst(req)); return; }

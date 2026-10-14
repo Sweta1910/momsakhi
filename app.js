@@ -1494,6 +1494,12 @@
     return i < 0 ? { name: h, arg: null } : { name: h.slice(0, i), arg: decodeURIComponent(h.slice(i + 1)) };
   }
   var lastRoute = "";
+  // 2026-10-14 SEO: index.html ships a static "About MomSakhi" section inside
+  // #screen so crawlers get real text without running JS. Lift it out now (the
+  // first render() would wipe it) and re-attach it under the welcome view, so a
+  // crawler that renders JS and a mom on the welcome screen both see it.
+  var aboutNode = (typeof document !== "undefined" && document.getElementById) ? document.getElementById("about-momsakhi") : null;
+  if (aboutNode && aboutNode.parentNode) aboutNode.parentNode.removeChild(aboutNode);
   var FEEDBACK_FOOT_TABS = ["home", "nearby", "meetups"];
   // While the beta gate is on, only these routes render as themselves.
   var GATE_OPEN = ["invite", "privacy", "safety"];
@@ -1507,6 +1513,7 @@
     var screen = $("#screen");
     var y = screen.scrollTop;
     screen.innerHTML = out.html;
+    if (aboutNode && r.name === "welcome") { var wv = screen.querySelector(".welcome"); if (wv) wv.appendChild(aboutNode); }
     // "💬 Send feedback" sits at the end of the main tab screens (Me has its own row).
     if (FEEDBACK_FOOT_TABS.indexOf(out.tab) >= 0) { var fv = screen.querySelector(".view"); if (fv) fv.insertAdjacentHTML("beforeend", feedbackFoot()); }
     var routeKey = r.name + "/" + (r.arg || "");
