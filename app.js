@@ -99,7 +99,7 @@
   var INVITE_LEN = 6;
   var INVITE_RE = /^SAKHI-[A-HJ-NP-Z2-9]{6}$/;
   var INVITE_KEY = "momsakhi.invite";
-  var INVITE_LINK = "https://sweta1910.github.io/momsakhi/?invite=";
+  var INVITE_LINK = "https://momsakhi.com/?invite=";
   var INVITE_MAX_SEATS = 50;
   var INVITE_NOTE_MAX = 80;
   var INVITE_ERR = {
@@ -663,12 +663,12 @@
       /disallowed.useragent/i.test(msg);
   }
   // The page's own address (no #route), built from location so it is never
-  // hardcoded: https://sweta1910.github.io/momsakhi/ on Pages, localhost locally.
+  // hardcoded: https://momsakhi.com/ on Pages, localhost locally.
   function appLink(loc) {
     return (loc.origin || (loc.protocol + "//" + loc.host)) + loc.pathname;
   }
   // Android: hand the page to Chrome. e.g.
-  // intent://sweta1910.github.io/momsakhi/#Intent;scheme=https;package=com.android.chrome;end
+  // intent://momsakhi.com/#Intent;scheme=https;package=com.android.chrome;end
   function chromeIntentUrl(loc) {
     return "intent://" + loc.host + loc.pathname + (loc.search || "") +
       "#Intent;scheme=" + String(loc.protocol || "https:").replace(":", "") + ";package=com.android.chrome;end";

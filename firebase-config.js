@@ -5,7 +5,7 @@
 //
 // The web apiKey is NOT a secret: every Firebase web app ships it to the browser.
 // Security comes from firestore.rules (published in the Firebase console) and the
-// Authentication -> Authorized domains list (sweta1910.github.io, localhost).
+// Authentication -> Authorized domains list (momsakhi.com, localhost).
 //
 // To go back to demo mode (fictional data, pretend sign-in), empty this object.
 window.FIREBASE_CONFIG = {

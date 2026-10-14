@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://sweta1910.github.io/momsakhi/sitemap.xml
+Sitemap: https://momsakhi.com/sitemap.xml

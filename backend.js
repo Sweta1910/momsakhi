@@ -129,7 +129,7 @@
 
       // Local test hook: point at the Firebase Local Emulator Suite (fake Google
       // accounts, same firestore.rules) ONLY on localhost/127.0.0.1 AND with ?emu=1.
-      // The live site (sweta1910.github.io) can never satisfy the hostname check.
+      // The live site (momsakhi.com) can never satisfy the hostname check.
       if (useEmulators(window.location)) {
         modules[1].connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
         modules[2].connectFirestoreEmulator(db, "127.0.0.1", 8080);

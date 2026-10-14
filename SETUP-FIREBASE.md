@@ -6,6 +6,6 @@ Follow these steps to enable real Google sign-in and live shared posts (Real Mod
 2. Click the Web icon (</>) to add a Firebase Web App to the project.
 3. Copy the configuration object they give you into `firebase-config.js`. (Note: The web apiKey is not a secret; it's safe to commit).
 4. Go to **Authentication** > **Sign-in method**, enable the **Google** provider, and save.
-5. In Authentication > Settings > **Authorized domains**, add `sweta1910.github.io` (localhost is already there).
+5. In Authentication > Settings > **Authorized domains**, add `momsakhi.com` (localhost is already there).
 6. Go to **Firestore Database** and create a database (choose Production mode, and pick a US region).
 7. Go to the **Rules** tab in Firestore, paste the contents of `firestore.rules` (from this repository) into the editor, and click **Publish**.

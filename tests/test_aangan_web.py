@@ -306,7 +306,7 @@ class TestData(unittest.TestCase):
             "[{hostname:'127.0.0.1',search:'?a=b&emu=1'},true],"
             "[{hostname:'localhost',search:''},false],"
             "[{hostname:'localhost',search:'?emu=10'},false],"
-            "[{hostname:'sweta1910.github.io',search:'?emu=1'},false],"
+            "[{hostname:'momsakhi.com',search:'?emu=1'},false],"
             "[{hostname:'localhost.evil.com',search:'?emu=1'},false],"
             "[null,false]];"
             "cases.forEach(function(c){if(f(c[0])!==c[1]){console.log('FAIL '+JSON.stringify(c));process.exit(1);}});"
@@ -1177,7 +1177,7 @@ console.log('OK');
 
 class TestServedFromRoot(unittest.TestCase):
     """2026-10-09: the app moved from /web/ to the site root so the public link is
-    https://sweta1910.github.io/momsakhi/#home. web/index.html is only a redirect
+    https://momsakhi.com/#home. web/index.html is only a redirect
     stub that must keep the #route, so old .../web/#post-12 links still land."""
 
     def test_app_files_at_root(self):
@@ -1355,8 +1355,8 @@ const webDir = %r;
 const dataJs = fs.readFileSync(path.join(webDir, 'data.js'), 'utf8');
 const appJs = fs.readFileSync(path.join(webDir, 'app.js'), 'utf8');
 function ok(c, msg) { if (!c) throw new Error(msg); }
-const LOC = { hash: '#welcome', search: '', hostname: 'sweta1910.github.io', host: 'sweta1910.github.io',
-  protocol: 'https:', origin: 'https://sweta1910.github.io', pathname: '/momsakhi/' };
+const LOC = { hash: '#welcome', search: '', hostname: 'momsakhi.com', host: 'momsakhi.com',
+  protocol: 'https:', origin: 'https://momsakhi.com', pathname: '/' };
 function boot(ua) {
   const ls = { store: {}, getItem(k) { return this.store[k] || null; }, setItem(k, v) { this.store[k] = v; }, removeItem(k) { delete this.store[k]; } };
   const w = { location: Object.assign({}, LOC), localStorage: ls, navigator: { userAgent: ua },
@@ -1411,8 +1411,8 @@ ok(A.isWebviewAuthError({ code: 'auth/web-storage-unsupported' }), 'web storage'
 ok(A.isWebviewAuthError({ code: 'auth/operation-not-supported-in-this-environment' }), 'op not supported');
 ok(A.isWebviewAuthError({ code: 'auth/internal-error', message: 'Error 403: disallowed_useragent' }), 'message match');
 ok(!A.isWebviewAuthError({ code: 'auth/popup-closed-by-user' }) && !A.isWebviewAuthError(null), 'normal errors');
-ok(A.appLink(LOC) === 'https://sweta1910.github.io/momsakhi/', A.appLink(LOC));
-ok(A.chromeIntentUrl(LOC) === 'intent://sweta1910.github.io/momsakhi/#Intent;scheme=https;package=com.android.chrome;end', A.chromeIntentUrl(LOC));
+ok(A.appLink(LOC) === 'https://momsakhi.com/', A.appLink(LOC));
+ok(A.chromeIntentUrl(LOC) === 'intent://momsakhi.com/#Intent;scheme=https;package=com.android.chrome;end', A.chromeIntentUrl(LOC));
 const local = { host: 'localhost:8765', protocol: 'http:', pathname: '/', search: '' };
 ok(A.appLink(local) === 'http://localhost:8765/', A.appLink(local));
 ok(A.chromeIntentUrl(local) === 'intent://localhost:8765/#Intent;scheme=http;package=com.android.chrome;end', 'built from location');
@@ -1423,11 +1423,11 @@ ok(A.chromeIntentUrl(local) === 'intent://localhost:8765/#Intent;scheme=http;pac
 let h = boot(UA.instagramIOS).V.welcome().html;
 ok(h.includes('id="iab-card"') && h.includes('To sign in, open MomSakhi in Chrome or Safari'), 'IG card: ' + h);
 ok(h.includes("inside Instagram's built-in browser") && h.includes('Open in Safari') && h.includes('id="iab-copy"'), 'IG iOS copy');
-ok(h.includes('value="https://sweta1910.github.io/momsakhi/"'), 'link field');
+ok(h.includes('value="https://momsakhi.com/"'), 'link field');
 ok(!h.includes('id="iab-chrome"'), 'no Chrome intent on iOS');
 ok(h.indexOf('id="iab-card"') < h.indexOf('id="google-signin"'), 'card above the Google button');
 h = boot(UA.fbAndroid).V.welcome().html;
-ok(h.includes('id="iab-chrome"') && h.includes('href="intent://sweta1910.github.io/momsakhi/#Intent;scheme=https;package=com.android.chrome;end"'), 'FB Android intent: ' + h);
+ok(h.includes('id="iab-chrome"') && h.includes('href="intent://momsakhi.com/#Intent;scheme=https;package=com.android.chrome;end"'), 'FB Android intent: ' + h);
 ['androidChrome', 'iosSafari', 'whatsappLike', 'desktopChrome'].forEach(function (k) {
   ok(!boot(UA[k]).V.welcome().html.includes('iab-card'), k + ' shows no card');
 });
@@ -1527,11 +1527,11 @@ ok(m(null).includes('Try opening this link in Chrome or Safari'), 'unknown error
 
 
 class TestSeo(unittest.TestCase):
-    """2026-10-14: crawlability for https://sweta1910.github.io/momsakhi/ --
+    """2026-10-14: crawlability for https://momsakhi.com/ --
     robots.txt + sitemap.xml, canonical / og / twitter / JSON-LD in <head>, a
     1200x630 share image, and a static (server-rendered) About section that
     app.js keeps under the welcome view. The worker never caches SEO files."""
-    SITE = "https://sweta1910.github.io/momsakhi/"
+    SITE = "https://momsakhi.com/"
 
     @classmethod
     def setUpClass(cls):
@@ -2099,7 +2099,7 @@ for (const s of ['Invite codes', 'id="invite-form"', 'id="inv-max"', 'max="50"',
   ok(h.includes(s), 'mod invites missing ' + s + ': ' + h);
 ok(!h.includes('<b>x</b>') && h.includes('&lt;b&gt;x&lt;/b&gt;'), 'note not escaped');
 ok((h.match(/data-act="invite-disable"/g) || []).length === 1 && h.includes('data-act="invite-disable" data-code="SAKHI-7F3KQ9" data-uses="1"'), 'disable only on active');
-ok(A.inviteLink('SAKHI-7F3KQ9') === 'https://sweta1910.github.io/momsakhi/?invite=SAKHI-7F3KQ9', 'link: ' + A.inviteLink('SAKHI-7F3KQ9'));
+ok(A.inviteLink('SAKHI-7F3KQ9') === 'https://momsakhi.com/?invite=SAKHI-7F3KQ9', 'link: ' + A.inviteLink('SAKHI-7F3KQ9'));
 // No navigator.share -> no Share button.
 const c = boot({ real: true, user: { uid: 'm1' } }).w.AANGAN; c._modState.isMod = true; c._modState.invites = A._modState.invites;
 ok(!c.V.mod().html.includes('data-act="invite-share"'), 'share without navigator.share');
@@ -2110,7 +2110,7 @@ ok(!boot({}).w.AANGAN.V.mod().html.includes('Invite codes'), 'demo shows invites
         self.assertIn("!modState.isMod", create)
         self.assertIn("n >= 1 && n <= INVITE_MAX_SEATS", create)
         self.assertIn('failToast("create the code", btn)', create)
-        self.assertIn('var INVITE_LINK = "https://sweta1910.github.io/momsakhi/?invite=";', self.app)
+        self.assertIn('var INVITE_LINK = "https://momsakhi.com/?invite=";', self.app)
 
     # ---- backend
     def test_backend_redeem_is_one_batch(self):
