@@ -81,6 +81,9 @@
   function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* ignore */ } }
 
   // ------------------------------------------------- closed beta: invite codes
+  // 2026-10-14 OPEN BETA: the gate below is switched off (gateOn() is always
+  // false, accessFor() always grants). Kept as legacy so old links/codes and the
+  // Moderation > Invite codes list keep working. Original 2026-10-12 notes:
   // 2026-10-12. Real mode only (demo mode never gates). A signed-in mom needs a
   // /members/{uid} doc (or to be a moderator) before she can read or write
   // anything; firestore.rules isMember() is the REAL gate, this is just the UI.
@@ -174,13 +177,7 @@
   var access = freshAccess();
   // Should this signed-in mom see the invite screen instead of the app?
   function gateOn() {
-    var B = window.Backend;
-    if (!isRealMode() || !B || !B.user) return false;
-    var cached = store.memberUid === B.user.uid;
-    if (access.uid !== B.user.uid) return !cached;
-    if (access.status === "member") return false;
-    if (access.status === "checking" || access.status === "error") return !cached;
-    return true;
+    return false; // 2026-10-14 open beta: invite gate removed.
   }
   function hasAccess() { return !isRealMode() || !!(window.Backend && window.Backend.user && !gateOn()); }
 
@@ -754,13 +751,15 @@
       '<button class="btn btn-ghost btn-block" data-act="skip-onboarding" id="have-account">I already have an account</button>') +
       '<p class="tiny" style="margin-bottom:8px;font-weight:600">Moms supporting moms — not a replacement for your doctor or therapist.</p>' +
       '<p class="tiny terms-line" id="welcome-terms">By continuing you agree to our <a href="#privacy" id="welcome-privacy">Terms &amp; Privacy</a>.</p>' +
-      '<p class="tiny" id="welcome-mode-line">' + (isRealMode() ? "Invite-only during the beta · sign in with Google, then enter your invite code" : "Prototype · all people, posts and places are fictional demo data") + '</p>' +
+      '<p class="tiny" id="welcome-mode-line">' + (isRealMode() ? "Open beta · sign in with Google to join" : "Prototype · all people, posts and places are fictional demo data") + '</p>' +
       "</div></div>" };
   };
   // Signed-out mom who arrived via an invite link: tell her the code is waiting.
+  // 2026-10-14 open beta: no code is needed any more, so no banner (an old
+  // ?invite= link just opens the welcome screen like any other visit).
   function welcomeInvite() {
     var code = pendingInvite();
-    if (!isRealMode() || !code) return "";
+    if (!isRealMode() || !code || !gateOn()) return "";
     return '<div class="card invite-banner" id="welcome-invite" role="status"><span aria-hidden="true">\ud83d\udc8c</span><div><b>You\u2019ve been invited!</b>' +
       "<span>Your invite code <b>" + esc(code) + "</b> will be used after you sign in.</span></div></div>";
   }
@@ -1259,7 +1258,7 @@
       "<p>" + name + " is a small, kind corner of the internet for moms. Here is, in plain words, who can join, what we keep, who sees what, and the few rules that keep it safe.</p></div>" +
       privacySection("🌸", "Who can join",
         "<p>" + name + " is for women aged 18 and over who are moms or moms-to-be. One account per person, please.</p>" +
-        "<p>During the beta, " + name + " is <b>invite-only</b>: you join with an invite code or link from a moderator. An invite code only lets you in \u2014 it isn\u2019t a check of who you are.</p>" +
+        "<p>During the open beta, any mom can join by signing in with Google \u2014 no invite code needed.</p>" +
         "<p>Signing in with Google only tells us you have a Google account \u2014 we don\u2019t check identity or gender. " + name + " is a moderated community, so please keep it kind and report anything that feels off.</p>") +
       privacySection("🗂️", "What we store",
         "<p>When you sign in with Google, we receive your <b>name, email address and profile photo</b> from Google. We keep your name and email on your private profile so we know the account is yours.</p>" +
@@ -1439,9 +1438,10 @@
         '<button class="btn btn-ghost btn-sm" data-act="invite-delete" data-code="' + c + '">Delete</button>' +
         "</div></article>";
     }).join("");
-    return '<div class="section-head" style="padding:0 18px" id="invites-head"><h2>Invite codes</h2><span class="muted">' + items.length + "</span></div>" +
+    // 2026-10-14 open beta: kept for existing codes/links, but optional.
+    return '<div class="section-head" style="padding:0 18px" id="invites-head"><h2>Invite codes <span class="tiny" id="invites-optional">not required (open beta)</span></h2><span class="muted">' + items.length + "</span></div>" +
       '<div class="card invite-form" id="invite-form">' +
-      '<p class="muted" style="margin:0 0 10px;font-size:14px">' + esc(BRAND.name) + " is invite-only during the beta. Each seat lets one mom join.</p>" +
+      '<p class="muted" style="margin:0 0 10px;font-size:14px">' + esc(BRAND.name) + " is in open beta: any mom who signs in with Google can join, so codes are optional. A code link is still a handy way to share the site.</p>" +
       '<div class="invite-form-row"><div class="field"><label for="inv-max">Seats</label><input class="input" id="inv-max" type="number" min="1" max="' + INVITE_MAX_SEATS + '" value="1" inputmode="numeric"></div>' +
       '<div class="field"><label for="inv-exp">Expires <span class="tiny">(optional)</span></label><input class="input" id="inv-exp" type="date"></div></div>' +
       '<div class="field"><label for="inv-note">Note <span class="tiny">(optional, only moderators see it)</span></label><input class="input" id="inv-note" maxlength="' + INVITE_NOTE_MAX + '" placeholder="for Priya" autocomplete="off"></div>' +
@@ -1697,8 +1697,8 @@
     store.profile.fullName = u.displayName || "";
     store.profile.email = u.email || "";
     save();
-    // Closed beta: a non-member goes to the invite screen first (her profile is
-    // members-only, so reading it now would just be denied).
+    // 2026-10-14 open beta: accessFor() always resolves true, so she goes
+    // straight to onboarding (new mom) or home (has a profile).
     return accessFor(u).then(function (ok) {
       if (!ok) { go("#invite"); return; }
       return routeByProfile(u);
@@ -1725,28 +1725,20 @@
   // One membership check per signed-in uid (memoised; onAuth and the popup path
   // share it). Moderators count as members. A failed check is "error" and is not
   // memoised, so the next call retries.
+  //
+  // 2026-10-14 OPEN BETA: the invite gate is removed. firestore.rules isMember()
+  // is now just `request.auth != null`, so every Google-signed-in mom is a member
+  // and this resolves true at once -- no /members read, no "Checking your
+  // invite..." screen, no invite form. A leftover ?invite= code from an old link
+  // is simply forgotten (never redeemed, never an error). The invite machinery
+  // below (redeemInvite, V.invite, Moderation > Invite codes) stays as optional
+  // legacy so existing links/data never throw.
   function accessFor(u) {
     if (access.uid === u.uid && access.promise) return access.promise;
-    var keep = access.uid === u.uid ? access : null;
     access = freshAccess();
-    access.uid = u.uid; access.status = "checking";
-    if (keep) { access.code = keep.code; access.autoTried = keep.autoTried; }
-    var B = window.Backend;
-    var mod = B.checkModerator ? B.checkModerator(u.uid).catch(function () { return false; }) : Promise.resolve(false);
-    var mem = B.checkMember ? B.checkMember(u.uid) : Promise.resolve(false);
-    var mine = access;
-    access.promise = Promise.all([mod, mem]).then(function (r) {
-      var ok = !!(r[0] || r[1]);
-      if (access !== mine) return ok;
-      access.status = ok ? "member" : "none";
-      if (ok) { store.memberUid = u.uid; save(); clearPendingInvite(); }
-      else if (store.memberUid === u.uid) { store.memberUid = null; save(); }
-      return ok;
-    }, function (e) {
-      console.error("MomSakhi: couldn't check membership", e);
-      if (access === mine) { access.status = "error"; access.promise = null; access.error = "Couldn\u2019t check your invite yet (" + errCode(e) + "). Enter your code, or try again in a moment."; }
-      return store.memberUid === u.uid;
-    });
+    access.uid = u.uid; access.status = "member"; access.autoTried = true;
+    store.memberUid = u.uid; save(); clearPendingInvite();
+    access.promise = Promise.resolve(true);
     return access.promise;
   }
   // The invite screen's Join button (and the one-time auto-submit for a link).
@@ -2566,7 +2558,8 @@
             window.Backend.user = u;
             resetReactions();
             syncModerator(u);
-            // Closed beta: listeners and the profile read wait for the membership
+            // Open beta (2026-10-14): accessFor() grants at once; kept so the
+            // flow below is unchanged (a known uid skips the first render).
             // check, except for a uid we already know is a member (no gate flash).
             var cached = !!(u && store.memberUid === u.uid);
             if (!u) access = freshAccess();

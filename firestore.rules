@@ -8,17 +8,14 @@ service cloud.firestore {
              exists(/databases/$(database)/documents/moderators/$(request.auth.uid));
     }
 
-    // ---- Closed beta: invite codes (added 2026-10-12).
-    // A mom is a MEMBER once /members/{uid} {code, joinedAt} exists. It can only be
-    // created in ONE batch together with a +1 on /invites/{code}.uses (see
-    // redeemedWith / redeemBump), so every member used exactly one seat of a real,
-    // unexpired, not-used-up code. Moderators are always members (no code needed).
+    // ---- Open beta: invite gate removed (2026-10-14).
+    // Any Google-signed-in mom is a member (moderators included). The /invites and
+    // /members match blocks below stay active as legacy, so existing data, old
+    // ?invite= links and the optional Moderation > Invite codes UI don't throw.
     // Posts, replies, reactions, reports, profiles and anon-author records all need
-    // isMember(): content is private to the beta. Feedback stays open to any
-    // signed-in mom (so "I didn't get a code" can still reach us).
+    // isMember(), i.e. a signed-in mom: signed-out visitors still read nothing.
     function isMember() {
-      return request.auth != null &&
-             (exists(/databases/$(database)/documents/members/$(request.auth.uid)) || isModerator());
+      return request.auth != null;
     }
     // Codes look like SAKHI-7F3KQ9: no 0/O/1/I so they can be read out loud.
     function validCode(code) { return code is string && code.matches('^SAKHI-[A-HJ-NP-Z2-9]{6}$'); }
@@ -169,7 +166,7 @@ service cloud.firestore {
     // Owner-only: a profile holds her Google fullName + email, and the app only ever
     // reads the signed-in mom's own doc (getProfile(u.uid)). The Privacy & Terms page
     // promises other moms never see her email, so other moms must not read this.
-    // 2026-10-12 closed beta: members only (a non-member never gets this far).
+    // 2026-10-14 open beta: isMember() == signed in, so any Google-signed-in mom.
     match /profiles/{uid} {
       allow read: if (request.auth != null && request.auth.uid == uid && isMember()) || isModerator();
       allow write: if request.auth != null && request.auth.uid == uid && isMember();
@@ -186,7 +183,8 @@ service cloud.firestore {
                     counterMoved(resource.data, -1);
     }
     
-    // 2026-10-12 closed beta: every read and write below also needs isMember().
+    // Every read and write below needs isMember() (2026-10-14 open beta: any
+    // Google-signed-in mom; signed-out visitors are still denied).
     match /posts/{postId} {
       allow read: if isMember();
       // Anonymous posts must not carry an author name, enforced here as well as in

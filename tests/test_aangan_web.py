@@ -425,8 +425,8 @@ class TestRealModeHardening(unittest.TestCase):
 
     def test_listeners_have_error_callbacks_and_wait_for_sign_in(self):
         # posts, replies, reports: every listener has an error callback.
-        self.assertEqual(self.backend.count("onSnapshot(q, function(snap)"), 5)  # + feedback, invites (moderators)
-        self.assertEqual(self.backend.count("if (onError) onError(e);"), 6)  # posts, replies, reports, my reactions, feedback, invites (mods)
+        self.assertEqual(self.backend.count("onSnapshot(q, function(snap)"), 6)  # + feedback, invites, waitlist (moderators)
+        self.assertEqual(self.backend.count("if (onError) onError(e);"), 9)  # posts, replies, reports, my reactions, feedback, invites, waitlist + mod reads
         # 2026-10-12 closed beta: no listener for a signed-in non-member either.
         self.assertIn("if (!B.user || !hasAccess()) { B.posts = []; return; }", self.app)
 
@@ -470,9 +470,9 @@ class TestRealModeHardening(unittest.TestCase):
         # In real mode, copy is warm and honest: no claims that data is fictional.
         # Demo mode retains the prototype/fictional notices.
         # 1. Welcome screen
-        self.assertIn('"Invite-only during the beta · sign in with Google, then enter your invite code"', self.app)
+        self.assertIn('"Open beta · sign in with Google to join"', self.app)
         self.assertIn('"Prototype · all people, posts and places are fictional demo data"', self.app)
-        self.assertIn('(isRealMode() ? "Invite-only during the beta · sign in with Google, then enter your invite code" : "Prototype · all people, posts and places are fictional demo data")', self.app)
+        self.assertIn('(isRealMode() ? "Open beta · sign in with Google to join" : "Prototype · all people, posts and places are fictional demo data")', self.app)
 
         # 2. Me tab footer note
         self.assertIn('esc(BRAND.name) + (isRealMode() ? " · v0.1 · beta" : " prototype · v0.1 · all data is fictional")', self.app)
@@ -529,7 +529,7 @@ function runMode(isReal) {
     if (welcome.includes('fictional') || welcome.includes('demo data') || welcome.includes('Prototype')) {
       throw new Error('Real mode welcome contains fictional/demo text: ' + welcome);
     }
-    if (!welcome.includes('Invite-only during the beta · sign in with Google, then enter your invite code')) {
+    if (!welcome.includes('Open beta · sign in with Google to join')) {
       throw new Error('Real mode welcome missing real-moms text: ' + welcome);
     }
     if (me.includes('fictional') || me.includes('all data is fictional')) {
@@ -654,7 +654,7 @@ class TestModeration(unittest.TestCase):
         self.assertIn("syncModerator(u);", self.app)
         # checkModerator runs via the `B` alias; its chain must still end in .catch.
         i = self.app.index("B.checkModerator(u.uid)")
-        self.assertIn(".catch(", self.app[i:i + 1200])
+        self.assertIn(".catch(", self.app[i:self.app.index("\n  }\n", i)])
         self.assertIn("if (modState.unsub) { modState.unsub(); modState.unsub = null; }", self.app)
 
     def test_demo_mode_reports_in_local_store(self):
@@ -729,7 +729,7 @@ class TestOptionalCity(unittest.TestCase):
         # City rides on /profiles/{uid}; the owner-write rule permits it. Since
         # 2026-10-09 reads are owner-only too (profiles hold fullName + email).
         # 2026-10-12 closed beta: owner-only AND members-only.
-        self.assertIn("match /profiles/{uid} {\n      allow read: if request.auth != null && request.auth.uid == uid && isMember();\n"
+        self.assertIn("match /profiles/{uid} {\n      allow read: if (request.auth != null && request.auth.uid == uid && isMember()) || isModerator();\n"
                       "      allow write: if request.auth != null && request.auth.uid == uid && isMember();", self.rules)
 
     def test_css_for_gate_and_strip(self):
@@ -856,7 +856,7 @@ class TestEditNickname(unittest.TestCase):
 
     def test_profile_rules_allow_owner_nickname_write_unchanged(self):
         # 2026-10-12 closed beta: owner-only AND members-only.
-        self.assertIn("match /profiles/{uid} {\n      allow read: if request.auth != null && request.auth.uid == uid && isMember();\n"
+        self.assertIn("match /profiles/{uid} {\n      allow read: if (request.auth != null && request.auth.uid == uid && isMember()) || isModerator();\n"
                       "      allow write: if request.auth != null && request.auth.uid == uid && isMember();", self.rules)
 
     def test_rendered_behaviour_demo_and_real(self):
@@ -1493,7 +1493,7 @@ ok(real.includes('id="google-signin"') && real.includes('Continue with Google'),
 ['id="get-started"', 'id="have-account"', 'Continue with phone', 'start-phone-onboard', 'auth-divider'].forEach(function (s) {
   ok(!real.includes(s), 'real welcome must not include ' + s);
 });
-ok(real.includes('Invite-only during the beta · sign in with Google, then enter your invite code'), 'mode line');
+ok(real.includes('Open beta · sign in with Google to join'), 'mode line');
 ok(!/phone/i.test(real.replace(/iPhone/g, '')), 'no phone claims on real welcome');
 """)
 
@@ -1578,7 +1578,7 @@ class TestSeo(unittest.TestCase):
         about = m.group(1)
         for s in ('id="about-momsakhi"', "A sakhi for every stage of motherhood.",
                   "Share anything. No judgment. You don't have to carry it alone.",
-                  "moderated community", "post anonymously", "invite-only during the beta"):
+                  "moderated community", "post anonymously", "open beta: any mom can join by signing in with Google"):
             self.assertIn(s, about)
         self.assertNotRegex(about, r"(?i)verified|women.only")
         self.assertIn('document.getElementById("about-momsakhi")', self.app)
@@ -1770,7 +1770,7 @@ console.log('OK');
     def test_rules_anon_has_no_uid_and_private_author_record(self):
         posts = self.rules[self.rules.index("match /posts/{postId}"):self.rules.index("match /postAuthors/{postId}")]
         self.assertEqual(posts.count("!('uid' in request.resource.data)"), 2)  # posts + replies
-        self.assertIn("keys().hasOnly(['uid', 'author', 'anon', 'circle', 'title', 'body', 'meta', 'hue', 'createdAt', 'replyCount'])", posts)
+        self.assertIn("keys().hasOnly(['uid', 'author', 'anon', 'circle', 'title', 'body', 'meta', 'hue', 'createdAt', 'replyCount', 'intent'])", posts)
         self.assertIn("keys().hasOnly(['uid', 'author', 'anon', 'body', 'hue', 'createdAt'])", posts)
         self.assertIn("getAfter(/databases/$(database)/documents/postAuthors/$(postId)).data.uid == request.auth.uid", posts)
         self.assertIn("getAfter(/databases/$(database)/documents/postAuthors/$(postId)/replies/$(replyId)).data.uid == request.auth.uid", posts)
@@ -2014,7 +2014,8 @@ const first = boot({ real: true, search: '?emu=1&invite=sakhi-7f3kq9', hash: '#w
 ok(first.ls.store['momsakhi.invite'] === 'SAKHI-7F3KQ9', 'not stored: ' + JSON.stringify(first.ls.store));
 ok(first.replaced.length === 1 && first.replaced[0] === '/?emu=1#welcome', 'URL not cleaned: ' + first.replaced);
 const wel = first.w.AANGAN.V.welcome().html;
-ok(wel.includes('id="welcome-invite"') && wel.includes('SAKHI-7F3KQ9'), 'welcome banner: ' + wel);
+// 2026-10-14 open beta: no code is needed, so no "You've been invited" banner.
+ok(!wel.includes('id="welcome-invite"'), 'open beta must not show an invite banner: ' + wel);
 // 2. Google redirect round trip: the page reloads WITHOUT the param, same localStorage.
 const back = boot({ real: true, ls: first.ls, hash: '', user: { uid: 'u1', email: 'mom@example.com' } });
 ok(back.replaced.length === 0, 'nothing to strip on return');
@@ -2034,7 +2035,7 @@ ok(!boot({ ls: first.ls }).w.AANGAN.V.welcome().html.includes('welcome-invite'),
         self.assertIn('access.status !== "none"', body)
         self.assertIn("autoRedeem(); return;", self.app)
 
-    # ---- gate in real mode
+    # ---- gate in real mode: 2026-10-14 OPEN BETA, the gate never shows.
     def test_gate_only_in_real_mode_for_signed_in_non_members(self):
         self._node_run(r"""
 const u = { uid: 'u1', email: 'mom@example.com' };
@@ -2042,44 +2043,39 @@ const u = { uid: 'u1', email: 'mom@example.com' };
 ok(boot({ user: u }).w.AANGAN.gateOn() === false, 'demo gated');
 // Real, signed out: welcome, not the gate.
 ok(boot({ real: true }).w.AANGAN.gateOn() === false, 'signed-out gated');
-// Real, signed in, unchecked, not cached: gated, with a "checking" screen.
+// Real, signed in, never checked, no cached membership, no code: NOT gated (open beta).
 let b = boot({ real: true, user: u }), A = b.w.AANGAN;
-ok(A.gateOn() === true, 'unchecked non-member not gated');
-ok(A.V.invite().html.includes('id="invite-checking"'), 'no checking state');
+ok(A.gateOn() === false, 'open beta: fresh signed-in mom must not be gated');
 const acc = A._access(); acc.uid = 'u1'; acc.status = 'none';
-ok(A.gateOn() === true, 'non-member not gated');
+ok(A.gateOn() === false, 'open beta: "none" status must not gate');
+acc.status = 'error';
+ok(A.gateOn() === false, 'open beta: a failed check must not gate');
+// Another uid with a stale cache: still not gated.
+ok(boot({ real: true, user: { uid: 'u2' }, seed: { memberUid: 'u1' } }).w.AANGAN.gateOn() === false, 'other uid gated');
+// Legacy invite screen still renders without throwing (old links / code UI).
 acc.error = A.INVITE_ERR.used;
 let h = A.V.invite().html;
-ok(h.includes('id="invite-error"') && h.includes('already been used up'), 'error state: ' + h);
-ok(h.includes('data-act="feedback"') && h.includes('data-act="sign-out"') && h.includes('href="#privacy"'), 'gate exits: ' + h);
-ok(h.includes('invite-only during the beta') && h.includes('isn\u2019t a check of who you are'), 'gate copy: ' + h);
-acc.status = 'member';
-ok(A.gateOn() === false, 'member gated');
-// A known member (cached uid) never sees a gate flash while the check runs.
-b = boot({ real: true, user: u, seed: { onboarded: true, memberUid: 'u1' } });
-ok(b.w.AANGAN.gateOn() === false, 'cached member gated');
-// ...but the cache is per uid.
-ok(boot({ real: true, user: { uid: 'u2' }, seed: { memberUid: 'u1' } }).w.AANGAN.gateOn() === true, 'cache leaked to another uid');
+ok(h.includes('id="invite-error"') && h.includes('already been used up'), 'legacy error state: ' + h);
 // Error messages exist for every case.
 for (const k of ['format', 'missing', 'used', 'expired']) ok(A.INVITE_ERR[k] && A.INVITE_ERR[k].length > 20, 'no error text for ' + k);
 const S = A.inviteStatus, now = 1e12;
 ok(S(null, now) === 'missing' && S({ uses: 1, maxUses: 1 }, now) === 'used' && S({ uses: 0, maxUses: 1, expiresAtMs: now - 1 }, now) === 'expired' &&
    S({ uses: 0, maxUses: 2, expiresAtMs: now + 1000 }, now) === 'ok' && S({ uses: 0, maxUses: 1, expiresAtMs: null }, now) === 'ok', 'inviteStatus');
 """)
+        self.assertIn("return false; // 2026-10-14 open beta: invite gate removed.", self.app)
+        # #invite (old bookmark) falls through to the app/onboarding.
         render = self.app[self.app.index("function render(keepScroll)"):]
         render = render[:render.index("\n  }\n")]
-        self.assertIn('var GATE_OPEN = ["invite", "privacy", "safety"];', self.app)
-        self.assertIn('if (gated && GATE_OPEN.indexOf(r.name) < 0) r = { name: "invite", arg: null };', render)
-        self.assertIn("if (gated) tabbar.hidden = true;", render)
-        # Listeners and the profile read wait for membership.
-        self.assertIn('if (r.name !== "q" || !r.arg || !B.user || !hasAccess()) return;', self.app)
-        self.assertIn("if (!B.user || !B.listenMyReactions || !hasAccess()) return;", self.app)
-        auth = self.app[self.app.index("window.Backend.onAuth(function(u) {"):]
-        auth = auth[:auth.index("\n          });")]
-        self.assertLess(auth.index("accessFor(u).then"), auth.index("getProfile(u.uid)"))
+        self.assertIn('else if (!gated && r.name === "invite") r = {', render)
+        # accessFor grants every signed-in uid at once, never reads /members, and
+        # forgets a leftover ?invite= code instead of redeeming it.
+        acc = self.app[self.app.index("function accessFor(u)"):]
+        acc = acc[:acc.index("\n  }\n")]
+        for s in ('access.status = "member"', "access.promise = Promise.resolve(true);", "clearPendingInvite();"):
+            self.assertIn(s, acc)
+        self.assertNotIn("checkMember", acc)
         sign_in = self.app[self.app.index("function afterGoogleSignIn(u)"):self.app.index("function routeByProfile(u)")]
-        self.assertIn('if (!ok) { go("#invite"); return; }', sign_in)
-        self.assertNotIn("getProfile", sign_in)
+        self.assertIn("return routeByProfile(u);", sign_in)
 
     # ---- moderator UI
     def test_moderator_invite_codes_section(self):
@@ -2162,7 +2158,9 @@ ok(!boot({}).w.AANGAN.V.mod().html.includes('Invite codes'), 'demo shows invites
         new = r[r.index("function validNewInvite(code)"):r.index("// ---- Reactions")]
         for s in ("d.maxUses >= 1 && d.maxUses <= 50", "d.uses == 0", "d.createdBy == request.auth.uid", "d.note.size() <= 80"):
             self.assertIn(s, new)
-        self.assertIn("(exists(/databases/$(database)/documents/members/$(request.auth.uid)) || isModerator())", r)
+        self.assertIn("function isMember() {\n      return request.auth != null;\n    }", r)
+        # 2026-10-14 open beta: membership no longer depends on a /members doc.
+        self.assertNotIn("(exists(/databases/$(database)/documents/members/$(request.auth.uid)) || isModerator())", r)
         # The gate: posts + replies read/create/update/delete, reactions, reports, profiles, postAuthors-create.
         posts = r[r.index("match /posts/{postId}"):r.index("match /postAuthors/{postId}")]
         self.assertEqual(posts.count("allow read: if isMember();"), 2)
@@ -2178,19 +2176,23 @@ ok(!boot({}).w.AANGAN.V.mod().html.includes('Invite codes'), 'demo shows invites
         self.assertNotIn("isMember()", self._block("match /feedback/{feedbackId}"))
         self.assertNotIn("isMember()", self._block("match /moderators/{uid}"))
 
-    # ---- copy
+    # ---- copy (2026-10-14 open beta: no "invite-only" claims anywhere a mom reads)
     def test_welcome_and_privacy_say_invite_only_without_overclaiming(self):
         self._node_run(r"""
 const real = boot({ real: true }).w.AANGAN, demo = boot({}).w.AANGAN;
-ok(real.V.welcome().html.includes('Invite-only during the beta'), 'real welcome');
-ok(!demo.V.welcome().html.includes('Invite-only'), 'demo welcome claims invite-only');
+ok(real.V.welcome().html.includes('Open beta · sign in with Google to join'), 'real welcome');
+ok(!real.V.welcome().html.includes('Invite-only'), 'real welcome still claims invite-only');
+ok(!demo.V.welcome().html.includes('Invite-only') && !demo.V.welcome().html.includes('Open beta'), 'demo welcome claims a beta mode');
 const p = real.V.privacy().html;
-ok(p.includes('<b>invite-only</b>') && p.includes('isn\u2019t a check of who you are') && p.includes('which code you used and when you joined'), 'privacy: ' + p);
+ok(p.includes('any mom can join by signing in with Google') && !p.includes('<b>invite-only</b>') && p.includes('which code you used and when you joined'), 'privacy: ' + p);
 ok(!/verif(y|ied) (your|her) identity|verified mom/i.test(p), 'overclaim');
 """)
         app_text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), self.app)
-        for line in ("is <b>invite-only</b>: you join with an invite code or link from a moderator",
-                     "An invite code only lets you in \u2014 it isn\u2019t a check of who you are.",
+        for line in ("any mom can join",
+                     "no invite code needed.",
                      "we also note <b>which code you used and when you joined</b>"):
             self.assertIn(line, self.static_privacy, "static privacy missing: " + line)
             self.assertIn(line, app_text, "#privacy missing: " + line)
+        self.assertNotIn("<b>invite-only</b>", self.static_privacy)
+        with open(os.path.join(WEB_DIR, "index.html"), encoding="utf-8") as fh:
+            self.assertNotIn("invite-only", fh.read())
