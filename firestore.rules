@@ -215,7 +215,17 @@ service cloud.firestore {
       allow update: if isMember() && ((
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['replyCount']) &&
                     request.resource.data.replyCount == resource.data.get('replyCount', 0) + 1) ||
-                    reactionBump(postId));
+                    reactionBump(postId) ||
+                    (
+                      (resource.data.get('uid', null) == request.auth.uid || isAnonAuthor(/databases/$(database)/documents/postAuthors/$(postId))) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'title', 'editedAt']) &&
+                      request.resource.data.get('body', '') is string &&
+                      request.resource.data.get('body', '').size() <= 4000 &&
+                      request.resource.data.get('title', '') is string &&
+                      request.resource.data.get('title', '').size() <= 300 &&
+                      (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['editedAt']) ||
+                       (request.resource.data.editedAt is timestamp || request.resource.data.editedAt is number))
+                    ));
       // The author may delete her own post; a moderator may delete any post. For an
       // anon post "her own" is proven by the private author record.
       allow delete: if isMember() && ((isModerator() || resource.data.get('uid', null) == request.auth.uid) ||
@@ -233,8 +243,15 @@ service cloud.firestore {
                            getAfter(/databases/$(database)/documents/postAuthors/$(postId)/replies/$(replyId)).data.uid == request.auth.uid)
                         : request.resource.data.uid == request.auth.uid) &&
                       !('reactions' in request.resource.data);
-        // Replies are never edited; the only update is one reaction count +-1.
-        allow update: if isMember() && reactionBump(postId + '_' + replyId);
+        allow update: if isMember() && (reactionBump(postId + '_' + replyId) ||
+                      (
+                        (resource.data.get('uid', null) == request.auth.uid || isAnonAuthor(/databases/$(database)/documents/postAuthors/$(postId)/replies/$(replyId))) &&
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'editedAt']) &&
+                        request.resource.data.get('body', '') is string &&
+                        request.resource.data.get('body', '').size() <= 4000 &&
+                        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['editedAt']) ||
+                         (request.resource.data.editedAt is timestamp || request.resource.data.editedAt is number))
+                      ));
         allow delete: if isMember() && ((isModerator() || resource.data.get('uid', null) == request.auth.uid) ||
                       isAnonAuthor(/databases/$(database)/documents/postAuthors/$(postId)/replies/$(replyId)));
       }

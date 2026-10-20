@@ -225,6 +225,21 @@
         });
       };
 
+      Backend.updatePost = function(postId, title, body) {
+        return updateDoc(doc(db, "posts", postId), {
+          title: str(title, ""),
+          body: str(body, ""),
+          editedAt: serverTimestamp()
+        });
+      };
+
+      Backend.updateReply = function(postId, replyId, body) {
+        return updateDoc(doc(db, "posts/" + postId + "/replies", replyId), {
+          body: str(body, ""),
+          editedAt: serverTimestamp()
+        });
+      };
+
       Backend.addReport = function(postId, reason, reporterUid) {
         return addDoc(collection(db, "reports"), {
           postId: str(postId, "unknown"),

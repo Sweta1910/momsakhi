@@ -622,8 +622,8 @@ class TestModeration(unittest.TestCase):
         self.assertIn("request.resource.data.reporterUid == request.auth.uid", reports)
         # 2026-10-12: get('uid', null) because anonymous posts/replies have no uid key;
         # their author proves ownership via the private /postAuthors record instead.
-        self.assertEqual(self.rules.count("(isModerator() || resource.data.get('uid', null) == request.auth.uid)"), 2)
-        self.assertEqual(self.rules.count("isAnonAuthor(/databases/$(database)/documents/postAuthors/$(postId)"), 2)
+        self.assertEqual(self.rules.count("resource.data.get('uid', null) == request.auth.uid"), 4)
+        self.assertEqual(self.rules.count("isAnonAuthor(/databases/$(database)/documents/postAuthors/$(postId)"), 4)
 
     def test_rules_keep_existing_and_deny_by_default(self):
         self.assertIn("match /{document=**} {\n      allow read, write: if false;", self.rules)
@@ -963,7 +963,7 @@ class TestSharedReactions(unittest.TestCase):
         self.assertIn("counterMoved(request.resource.data, 1)", r)
         self.assertIn("counterMoved(resource.data, -1)", r)
         self.assertIn("/userReactions/$(request.auth.uid)/marks/", r)  # never someone else's marker
-        self.assertIn("allow update: if isMember() && reactionBump(postId + '_' + replyId);", r)
+        self.assertIn("reactionBump(postId + '_' + replyId)", r)
         self.assertNotIn("toList()", r)  # not a Set method; the emulator warns and the rule never matches
         # New posts/replies can't be created with pre-stuffed counts.
         self.assertEqual(r.count("!('reactions' in request.resource.data)"), 2)
