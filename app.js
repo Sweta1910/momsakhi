@@ -2088,11 +2088,12 @@
         } else if (B && B.user) {
            isMine = pp.uid === B.user.uid || (pp.anon && store.myAnon && store.myAnon[id]);
         }
+        var canEdit = isMine || canModerate();
         var sheetEl = document.getElementById("sheet");
         if (sheetEl) sheetEl.setAttribute("data-pid", id);
         var items = '';
-        if (isMine) {
-          items += '<button class="sheet-item" data-act="post-edit" data-id="' + id + '">' + icon("edit") + "<span>Edit post<small>Make changes to your post</small></span></button>";
+        if (canEdit) {
+          items += '<button class="sheet-item" data-act="post-edit" data-id="' + id + '">' + icon("edit") + "<span>Edit post<small>Make changes to " + (isMine ? "your" : "this") + " post</small></span></button>";
         }
         items += '<button class="sheet-item" data-act="report-start" data-label="this post">' + icon("flag") + "<span>Report this post<small>Unkind, unsafe, spam or not from a mom</small></span></button>";
         items += '<button class="sheet-item" data-act="hide-post" data-id="' + id + '">' + icon("eyeoff") + "<span>Hide this post<small>You won't see it again</small></span></button>";
@@ -2144,11 +2145,12 @@
         } else if (B && B.user) {
            isMine = ans.uid === B.user.uid || (ans.anon && store.myAnon && store.myAnon[pid + "_" + rid]);
         }
+        var canEdit = isMine || canModerate();
         var sheetEl = document.getElementById("sheet");
         if (sheetEl) sheetEl.setAttribute("data-pid", pid);
         var items = '';
-        if (isMine) {
-          items += '<button class="sheet-item" data-act="answer-edit" data-pid="' + pid + '" data-id="' + rid + '">' + icon("edit") + "<span>Edit reply<small>Make changes to your reply</small></span></button>";
+        if (canEdit) {
+          items += '<button class="sheet-item" data-act="answer-edit" data-pid="' + pid + '" data-id="' + rid + '">' + icon("edit") + "<span>Edit reply<small>Make changes to " + (isMine ? "your" : "this") + " reply</small></span></button>";
         }
         items += '<button class="sheet-item" data-act="report-start" data-label="this reply">' + icon("flag") + "<span>Report this reply<small>Unkind, unsafe, spam or not from a mom</small></span></button>";
         if (au) items += '<button class="sheet-item danger" data-act="block" data-who="' + esc(au) + '" data-name="' + esc(au) + '">' + icon("block") + "<span>Block " + esc(au) + "<small>They won't see you or be able to message you</small></span></button>";
