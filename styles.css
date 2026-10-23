@@ -541,6 +541,8 @@ textarea.input { min-height: 140px; resize: none; line-height: 1.55; }
 .link-row { display: flex; gap: 12px; align-items: center; padding: 14px 16px; width: 100%; text-align: left; font-weight: 600; font-size: 14px; }
 .link-row svg { width: 18px; height: 18px; color: var(--ink-3); }
 .link-row .grow { flex: 1; }
+.link-row b { display: block; }
+.link-row small { display: block; font-size: 12px; color: var(--ink-3); font-weight: 400; margin-top: 2px; }
 .footer-note { text-align: center; margin: 20px 0 8px; font-size: 12px; color: var(--ink-3); }
 
 /* ---------- Tab bar ---------- */

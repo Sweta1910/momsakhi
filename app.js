@@ -1329,6 +1329,16 @@
         (window.Backend.user ? '<div class="link-row uid-row"><span class="grow"><b>Your account ID</b><span class="tiny" id="my-uid">' + esc(window.Backend.user.uid) + '</span></span><button class="btn btn-ghost btn-sm" data-act="copy-uid" id="copy-uid">Copy</button></div>' : "") +
         '<button class="link-row" data-act="sign-out" id="sign-out">' + icon("reset") + '<span class="grow">Sign out</span>' + icon("chevron") + "</button></div></div>" :
         '<button class="link-row" data-act="reset" id="reset-demo">' + icon("reset") + '<span class="grow">Reset demo</span>' + icon("chevron") + "</button></div></div>") +
+      (!isStandalone() ?
+        '<div class="settings-group"><h3>App</h3><div class="card">' +
+        '<button class="link-row" data-act="install-guide" id="me-install">' +
+        '<span aria-hidden="true">📲</span>' +
+        '<span class="grow"><b>Install ' + esc(BRAND.name) + ' app</b><small>Add to home screen for 1-tap access</small></span>' +
+        '<span class="btn btn-primary btn-sm">Install</span>' +
+        '</button></div></div>' :
+        '<div class="settings-group"><h3>App</h3><div class="card">' +
+        '<div class="link-row" style="cursor:default"><span aria-hidden="true">✓</span><span class="grow"><b>' + esc(BRAND.name) + ' is installed</b><small>Running as standalone app</small></span></div>' +
+        '</div></div>') +
       '<div class="settings-group"><h3>Help us improve</h3><div class="card">' +
       '<button class="link-row" data-act="feedback" id="me-feedback"><span aria-hidden="true">💬</span><span class="grow">Send feedback</span><span class="tiny">Tell us what you think</span>' + icon("chevron") + "</button>" +
       '<a class="link-row" href="#privacy" id="me-privacy" style="text-decoration:none;color:inherit"><span aria-hidden="true">📄</span><span class="grow">Privacy &amp; Terms</span><span class="tiny">What we store, the rules</span>' + icon("chevron") + "</a></div></div>" +
@@ -1880,6 +1890,47 @@
         var pr = installPrompt; installPrompt = null; installHintLive = false;
         var ihb = $("#install-hint"); if (ihb) ihb.remove();
         if (pr && pr.prompt) { pr.prompt(); if (pr.userChoice) pr.userChoice.then(function (c) { if (c && c.outcome === "accepted") toast("Added to your home screen ✓"); }); }
+        break;
+      }
+      case "install-guide": {
+        if (installPrompt) {
+          var pr = installPrompt;
+          installPrompt = null;
+          installHintLive = false;
+          var ihb = $("#install-hint"); if (ihb) ihb.remove();
+          if (pr && pr.prompt) {
+            pr.prompt();
+            if (pr.userChoice) {
+              pr.userChoice.then(function (c) {
+                if (c && c.outcome === "accepted") toast("Added to your home screen ✓");
+              });
+            }
+          }
+          break;
+        }
+        var ua = nav().userAgent || "";
+        if (isIOS(ua)) {
+          openSheet(
+            "<h3>Install " + esc(BRAND.name) + " on iPhone</h3>" +
+            '<p class="muted">Add to your home screen in 3 quick steps:</p>' +
+            '<div class="sheet-list" style="gap:10px;font-size:14px;margin-bottom:12px">' +
+            '<div class="card" style="padding:12px 14px"><b>1.</b> Tap the Share button (<span aria-hidden="true">⎋</span>) in Safari\'s toolbar.</div>' +
+            '<div class="card" style="padding:12px 14px"><b>2.</b> Scroll down and tap "Add to Home Screen" <span aria-hidden="true">➕</span>.</div>' +
+            '<div class="card" style="padding:12px 14px"><b>3.</b> Tap "Add" at the top right.</div>' +
+            '</div>' +
+            '<button class="btn btn-primary btn-block" data-act="sheet-close">Got it</button>'
+          );
+          break;
+        }
+        openSheet(
+          "<h3>Install " + esc(BRAND.name) + "</h3>" +
+          '<p class="muted">Add ' + esc(BRAND.name) + ' to your home screen from your browser:</p>' +
+          '<div class="sheet-list" style="gap:10px;font-size:14px;margin-bottom:12px">' +
+          '<div class="card" style="padding:12px 14px"><b>1.</b> Tap the menu (<span aria-hidden="true">⋮</span>) in your browser.</div>' +
+          '<div class="card" style="padding:12px 14px"><b>2.</b> Select "Install app" or "Add to Home screen".</div>' +
+          '</div>' +
+          '<button class="btn btn-primary btn-block" data-act="sheet-close">Got it</button>'
+        );
         break;
       }
       case "pick-google-account": {

@@ -1343,6 +1343,112 @@ console.log('OK');
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("OK", r.stdout)
 
+    def test_me_tab_install_guide_persistent(self):
+        """2026-10-23: Persistent 'Install MomSakhi App' in Profile / Settings (#me).
+        When not running standalone, V.me() displays 'Install MomSakhi app' with
+        data-act="install-guide". When standalone is true, it displays 'MomSakhi is installed'."""
+        node = _node()
+        if not node:
+            self.skipTest("node not installed")
+        harness = r"""
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const webDir = %r;
+const dataJs = fs.readFileSync(path.join(webDir, 'data.js'), 'utf8');
+const appJs = fs.readFileSync(path.join(webDir, 'app.js'), 'utf8');
+function ok(c, msg) { if (!c) throw new Error(msg); }
+const IOS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+const ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36';
+function newLs() { return { store: {}, getItem(k) { return this.store[k] || null; }, setItem(k, v) { this.store[k] = v; }, removeItem(k) { delete this.store[k]; } }; }
+function boot(ua, ls, backend, standalone, matchMediaStandalone) {
+  ls.store['aangan.demo.v1'] = JSON.stringify({ onboarded: true });
+  const w = { location: { hash: '#me', search: '', hostname: 'localhost' }, localStorage: ls,
+    navigator: { userAgent: ua, standalone: !!standalone },
+    matchMedia: function(q) { return { matches: !!matchMediaStandalone && q === '(display-mode: standalone)' }; },
+    document: { addEventListener() {}, querySelector() { return null; }, getElementById() { return null; }, body: { setAttribute() {} } },
+    Backend: backend, console: console, setTimeout: setTimeout, clearTimeout: clearTimeout };
+  w.window = w;
+  vm.runInContext(dataJs, vm.createContext(w)); vm.runInContext(appJs, w);
+  return w.AANGAN;
+}
+const signedIn = { isReal: true, user: { uid: 'u1' }, posts: [] };
+
+// 1. When not running in standalone mode (!isStandalone())
+const A_browser = boot(ANDROID, newLs(), signedIn, false, false);
+const me_browser = A_browser.V.me().html;
+ok(me_browser.includes('data-act="install-guide"'), 'Me tab must contain data-act="install-guide" when not standalone');
+ok(me_browser.includes('id="me-install"'), 'Me tab must have id="me-install"');
+ok(me_browser.includes('Install MomSakhi app'), 'Me tab must contain "Install MomSakhi app"');
+ok(!me_browser.includes('MomSakhi is installed'), 'Non-standalone Me tab must not say installed');
+
+// 2. When standalone is true via navigator.standalone (iOS PWA)
+const A_ios_standalone = boot(IOS, newLs(), signedIn, true, false);
+const me_ios_standalone = A_ios_standalone.V.me().html;
+ok(!me_ios_standalone.includes('data-act="install-guide"'), 'Standalone Me tab must not have install-guide button');
+ok(me_ios_standalone.includes('MomSakhi is installed'), 'Standalone Me tab must display "MomSakhi is installed"');
+ok(me_ios_standalone.includes('Running as standalone app'), 'Standalone Me tab must display "Running as standalone app"');
+
+// 3. When standalone is true via matchMedia (Android/Desktop PWA)
+const A_mm_standalone = boot(ANDROID, newLs(), signedIn, false, true);
+const me_mm_standalone = A_mm_standalone.V.me().html;
+ok(!me_mm_standalone.includes('data-act="install-guide"'), 'matchMedia standalone must not have install-guide button');
+ok(me_mm_standalone.includes('MomSakhi is installed'), 'matchMedia standalone must display "MomSakhi is installed"');
+
+// 4. Interactive install-guide sheets (iOS guide vs browser fallback)
+let lastSheet = null, clickHandler = null, domLoaded = null;
+const fakeEl = {
+  hidden: true, innerHTML: '', style: {},
+  classList: { toggle() {}, add() {}, remove() {} },
+  setAttribute() {}, getAttribute() { return null; },
+  addEventListener(evt, fn) { if (evt === 'click') clickHandler = fn; },
+  querySelector() { return null; }, focus() {}, remove() {}
+};
+const sheetEl = { set innerHTML(h) { lastSheet = h; }, get innerHTML() { return lastSheet; }, set hidden(v) {}, querySelector() { return null; } };
+const backdropEl = { set hidden(v) {}, addEventListener() {} };
+const wGuide = {
+  location: { hash: '#me', search: '', hostname: 'localhost' },
+  localStorage: newLs(),
+  navigator: { userAgent: IOS, standalone: false },
+  matchMedia: () => ({ matches: false }),
+  addEventListener() {},
+  document: {
+    addEventListener(evt, fn) { if (evt === 'DOMContentLoaded') domLoaded = fn; },
+    querySelector(s) { if (s === '#sheet') return sheetEl; if (s === '#sheet-backdrop') return backdropEl; return fakeEl; },
+    getElementById(id) { if (id === 'sheet') return sheetEl; if (id === 'sheet-backdrop') return backdropEl; return fakeEl; },
+    body: fakeEl
+  },
+  Backend: signedIn, console: console, setTimeout: setTimeout, clearTimeout: clearTimeout
+};
+wGuide.window = wGuide;
+vm.runInContext(dataJs, vm.createContext(wGuide));
+vm.runInContext(appJs, wGuide);
+if (domLoaded) domLoaded();
+
+const fakeEvt = {
+  target: { closest(sel) { return sel === '[data-act]' ? { getAttribute(a) { return a === 'data-act' ? 'install-guide' : null; } } : null; } }
+};
+
+// 4a. iOS sheet
+clickHandler(fakeEvt);
+ok(lastSheet.includes('Install MomSakhi on iPhone'), 'iOS sheet title');
+ok(lastSheet.includes('Tap the Share button'), 'iOS step 1');
+ok(lastSheet.includes('Add to Home Screen'), 'iOS step 2');
+ok(lastSheet.includes('data-act="sheet-close"'), 'iOS sheet-close button');
+
+// 4b. Browser fallback sheet
+wGuide.navigator.userAgent = ANDROID;
+lastSheet = null;
+clickHandler(fakeEvt);
+ok(lastSheet.includes('Install MomSakhi</h3>'), 'Fallback sheet title');
+ok(lastSheet.includes('Tap the menu'), 'Fallback step 1');
+ok(lastSheet.includes('Install app'), 'Fallback step 2');
+ok(lastSheet.includes('data-act="sheet-close"'), 'Fallback sheet-close button');
+
+console.log('OK');
+""" % WEB_DIR
+        r = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("OK", r.stdout)
+
 
 class TestInAppBrowserWarning(unittest.TestCase):
     """2026-10-09: Google blocks OAuth in embedded webviews (403
