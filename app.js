@@ -37,6 +37,7 @@
       msgPolicy: "mutual",
       posts: [],          // posts created in this demo session
       answers: {},        // postId -> [answers created in this demo]
+      myAnon: {},         // postId -> true (for anonymous posts authored by this device)
       reacted: {},        // DEMO mode: "p1:hug" | "p1/a2:helpful" -> true
       // REAL mode: optimistic cache of HER Firestore markers (same key shape), so
       // pressed state paints before listenMyReactions answers. Firestore wins.
@@ -604,7 +605,7 @@
     return '<article class="card post ' + (opts.full ? "" : "clickable") + '" ' + (opts.full ? "" : 'data-href="#q/' + p.id + '"') + ' id="post-' + p.id + '">' +
       '<div class="post-head">' + avatar(p.anon ? null : p.author, p.hue) +
       '<div class="who"><b>' + esc(name) + "</b><span>" + esc(p.meta) + " · " + timeStr + "</span></div>" +
-      (opts.full ? '<button class="icon-btn" data-act="post-menu" data-id="' + p.id + '" aria-label="More options">' + icon("more") + "</button>" : "") +
+      '<button class="icon-btn" data-act="post-menu" data-id="' + p.id + '" aria-label="More options">' + icon("more") + "</button>" +
       "</div>" +
       '<div class="post-tagrow" style="display:flex;gap:6px;margin-bottom:8px">' +
       (opts.full || !c ? "" : '<a class="tag" style="text-decoration:none" href="#circle/' + c.id + '">' + c.emoji + " " + esc(c.name) + "</a>") +
@@ -2010,7 +2011,27 @@
           if (askDraft.saving) break;
           askDraft.saving = true; busy(el);
           window.Backend.addPost(window.Backend.user.uid, authorName, isAnon, cId, askDraft.title.trim(), askDraft.body.trim(), meta, D.me.hue, askDraft.intent).then(function(docRef) {
-            if (isAnon) { store.myAnon = store.myAnon || {}; store.myAnon[docRef.id] = true; save(); }
+            store.myAnon = store.myAnon || {};
+            if (isAnon) { store.myAnon[docRef.id] = true; save(); }
+            if (window.Backend.posts) {
+              var optimisticPost = {
+                id: docRef.id,
+                author: authorName,
+                anon: isAnon,
+                circle: cId,
+                title: askDraft.title.trim(),
+                body: askDraft.body.trim(),
+                meta: meta,
+                hue: D.me.hue,
+                createdAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 },
+                replyCount: 0,
+                uid: isAnon ? undefined : window.Backend.user.uid,
+                intent: askDraft.intent,
+                reactions: { hug: 0, been: 0, helpful: 0 }
+              };
+              var exists = window.Backend.posts.some(function(p) { return p.id === docRef.id; });
+              if (!exists) window.Backend.posts.unshift(optimisticPost);
+            }
             askDraft = { circle: null, title: "", body: "", anon: null, nudge: null, intent: null };
             go("#q/" + docRef.id); toast("Posted to " + cn + " 💛");
           }).catch(function (e) { askDraft.saving = false; failToast("post", el)(e); });
@@ -2067,7 +2088,22 @@
           replyDraft.saving = true; busy(el);
           var rAnon = !!replyDraft.anon;
           window.Backend.addReply(pid, window.Backend.user.uid, rAnon ? null : store.profile.nickname, rAnon, txt, D.me.hue).then(function (docRef) {
-            if (rAnon) { store.myAnon = store.myAnon || {}; store.myAnon[pid + "_" + docRef.id] = true; save(); }
+            store.myAnon = store.myAnon || {};
+            if (rAnon) { store.myAnon[pid + "_" + docRef.id] = true; save(); }
+            if (window.Backend._currentReplies) {
+              var optimisticReply = {
+                id: docRef.id,
+                author: rAnon ? null : store.profile.nickname,
+                anon: rAnon,
+                body: txt,
+                hue: D.me.hue,
+                createdAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 },
+                uid: rAnon ? undefined : window.Backend.user.uid,
+                reactions: { hug: 0, been: 0, helpful: 0 }
+              };
+              var exists = window.Backend._currentReplies.some(function(r) { return r.id === docRef.id; });
+              if (!exists) window.Backend._currentReplies.push(optimisticReply);
+            }
             replyDraft.saving = false; replyDraft.text = ""; replyDraft.nudge = null; rerender();
             setTimeout(function () { var s = $("#screen"); s.scrollTop = s.scrollHeight; }, 30);
             toast("Reply posted 💛");
@@ -2081,12 +2117,13 @@
       }
       case "post-menu": {
         var pp = post(id);
+        if (!pp) break;
         var B = window.Backend;
         var isMine = false;
         if (!isRealMode()) {
            isMine = !!byId(store.posts, id);
         } else if (B && B.user) {
-           isMine = pp.uid === B.user.uid || (pp.anon && store.myAnon && store.myAnon[id]);
+           isMine = (pp.uid && pp.uid === B.user.uid) || (pp.anon && !!(store.myAnon && store.myAnon[id]));
         }
         var canEdit = isMine || canModerate();
         var sheetEl = document.getElementById("sheet");
@@ -2095,15 +2132,18 @@
         if (canEdit) {
           items += '<button class="sheet-item" data-act="post-edit" data-id="' + id + '">' + icon("edit") + "<span>Edit post<small>Make changes to " + (isMine ? "your" : "this") + " post</small></span></button>";
         }
-        items += '<button class="sheet-item" data-act="report-start" data-label="this post">' + icon("flag") + "<span>Report this post<small>Unkind, unsafe, spam or not from a mom</small></span></button>";
-        items += '<button class="sheet-item" data-act="hide-post" data-id="' + id + '">' + icon("eyeoff") + "<span>Hide this post<small>You won't see it again</small></span></button>";
-        if (pp.author) items += '<button class="sheet-item danger" data-act="block" data-who="' + esc(pp.author) + '" data-name="' + esc(pp.author) + '">' + icon("block") + "<span>Block " + esc(pp.author) + "<small>They won't see you or be able to message you</small></span></button>";
+        if (!isMine) {
+          items += '<button class="sheet-item" data-act="report-start" data-label="this post">' + icon("flag") + "<span>Report this post<small>Unkind, unsafe, spam or not from a mom</small></span></button>";
+          items += '<button class="sheet-item" data-act="hide-post" data-id="' + id + '">' + icon("eyeoff") + "<span>Hide this post<small>You won't see it again</small></span></button>";
+          if (pp.author) items += '<button class="sheet-item danger" data-act="block" data-who="' + esc(pp.author) + '" data-name="' + esc(pp.author) + '">' + icon("block") + "<span>Block " + esc(pp.author) + "<small>They won't see you or be able to message you</small></span></button>";
+        }
         items += '<button class="sheet-item" data-act="sheet-close">' + icon("close") + "<span>Cancel</span></button>";
         openSheet("<h3>More options</h3><div class=\"sheet-list\">" + items + "</div>");
         break;
       }
       case "post-edit": {
         var pp = post(id);
+        if (!pp) break;
         var html = '<div style="padding: 10px 0;">' +
                    '<h3 style="margin-bottom:12px;">Edit post</h3>' +
                    '<div class="field" style="margin-top:0"><label>Title</label><input type="text" id="edit-title" class="input" value="' + esc(pp.title) + '" maxlength="300"></div>' +
@@ -2117,13 +2157,15 @@
       }
       case "post-save": {
         var pp = post(id);
+        if (!pp) break;
         var newTitle = document.getElementById("edit-title").value.trim();
         var newBody = document.getElementById("edit-body").value.trim();
         if (!newTitle) break;
         if (isRealMode()) {
            busy(el);
            window.Backend.updatePost(id, newTitle, newBody).then(function() {
-               closeSheet(); toast("Post updated 💛");
+               pp.title = newTitle; pp.body = newBody; pp.editedAt = Date.now();
+               closeSheet(); rerender(); toast("Post updated 💛");
            }).catch(failToast("update your post", el));
            break;
         }
@@ -2143,7 +2185,7 @@
         if (!isRealMode()) {
            isMine = !!(store.answers[pid] && store.answers[pid].some(function(x) { return x.id === rid; }));
         } else if (B && B.user) {
-           isMine = ans.uid === B.user.uid || (ans.anon && store.myAnon && store.myAnon[pid + "_" + rid]);
+           isMine = (ans.uid && ans.uid === B.user.uid) || (ans.anon && !!(store.myAnon && store.myAnon[pid + "_" + rid]));
         }
         var canEdit = isMine || canModerate();
         var sheetEl = document.getElementById("sheet");
@@ -2152,8 +2194,10 @@
         if (canEdit) {
           items += '<button class="sheet-item" data-act="answer-edit" data-pid="' + pid + '" data-id="' + rid + '">' + icon("edit") + "<span>Edit reply<small>Make changes to " + (isMine ? "your" : "this") + " reply</small></span></button>";
         }
-        items += '<button class="sheet-item" data-act="report-start" data-label="this reply">' + icon("flag") + "<span>Report this reply<small>Unkind, unsafe, spam or not from a mom</small></span></button>";
-        if (au) items += '<button class="sheet-item danger" data-act="block" data-who="' + esc(au) + '" data-name="' + esc(au) + '">' + icon("block") + "<span>Block " + esc(au) + "<small>They won't see you or be able to message you</small></span></button>";
+        if (!isMine) {
+          items += '<button class="sheet-item" data-act="report-start" data-label="this reply">' + icon("flag") + "<span>Report this reply<small>Unkind, unsafe, spam or not from a mom</small></span></button>";
+          if (au) items += '<button class="sheet-item danger" data-act="block" data-who="' + esc(au) + '" data-name="' + esc(au) + '">' + icon("block") + "<span>Block " + esc(au) + "<small>They won't see you or be able to message you</small></span></button>";
+        }
         items += '<button class="sheet-item" data-act="sheet-close">' + icon("close") + "<span>Cancel</span></button>";
         openSheet("<h3>More options</h3><div class=\"sheet-list\">" + items + "</div>");
         break;
@@ -2182,7 +2226,10 @@
         if (isRealMode()) {
            busy(el);
            window.Backend.updateReply(pid, rid, newBody).then(function() {
-               closeSheet(); toast("Reply updated 💛");
+               var p = post(pid);
+               var ans = p ? answersFor(p).filter(function(a) { return a.id === rid; })[0] : null;
+               if (ans) { ans.body = newBody; ans.editedAt = Date.now(); }
+               closeSheet(); rerender(); toast("Reply updated 💛");
            }).catch(failToast("update your reply", el));
            break;
         }

@@ -661,6 +661,15 @@ class TestModeration(unittest.TestCase):
         self.assertIn("reports: [],        // demo-mode reports", self.app)
         self.assertIn("store.reports.unshift(", self.app)
 
+    def test_post_and_reply_edit_controls_and_safety(self):
+        self.assertIn("myAnon: {},         // postId -> true", self.app)
+        self.assertIn("var pp = post(id);\n        if (!pp) break;", self.app)
+        self.assertIn("(pp.uid && pp.uid === B.user.uid) || (pp.anon && !!(store.myAnon && store.myAnon[id]))", self.app)
+        self.assertIn("if (canEdit) {\n          items += '<button class=\"sheet-item\" data-act=\"post-edit\"", self.app)
+        self.assertIn("if (!isMine) {\n          items += '<button class=\"sheet-item\" data-act=\"report-start\"", self.app)
+        self.assertIn("if (window.Backend.posts) {\n              var optimisticPost =", self.app)
+        self.assertIn("if (window.Backend._currentReplies) {\n              var optimisticReply =", self.app)
+
     def test_account_id_with_copy(self):
         self.assertIn("Your account ID", self.app)
         self.assertIn('data-act="copy-uid"', self.app)
