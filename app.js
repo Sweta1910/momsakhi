@@ -673,9 +673,9 @@
       "#Intent;scheme=" + String(loc.protocol || "https:").replace(":", "") + ";package=com.android.chrome;end";
   }
   function inAppCard() {
+    if (!signInBlocked) return "";
     var ua = nav().userAgent || "";
     var iab = inAppBrowser(ua);
-    if (!iab && !signInBlocked) return "";
     var os = iab ? iab.os : (/Android/.test(ua) ? "android" : isIOS(ua) ? "ios" : "other");
     var where = iab && iab.name ? esc(iab.name) + "'s" : "this app's";
     var loc = window.location, link = appLink(loc);
@@ -730,20 +730,14 @@
     return { tab: null, html:
       '<div class="welcome view">' +
       '<div class="toran" aria-hidden="true"></div>' + mandala() +
-      // First thing on screen: a mom arriving from Instagram must see it without scrolling.
-      '<div class="welcome-hero">' + inAppCard() + welcomeInvite() +
+      '<div class="welcome-hero">' + welcomeInvite() +
       '<div class="logo">' + logoMark() + '<span class="logo-word" style="font-size:28px">' + esc(BRAND.name) + "</span></div>" +
       "<h1>" + esc(BRAND.tagline).replace("sakhi", "<em>sakhi</em>") + "</h1>" +
       '<p class="sakhi-note"><b>Sakhi</b> (सखी) means a close friend — no judgement, just moms.</p>' +
       "<p>" + esc(BRAND.blurb) + "</p>" +      '<p style="font-weight: 500; font-size: 15px; margin-top: 12px; color: var(--ink);">Share anything. No judgment. You don\'t have to carry it alone.</p></div>' +
-      '<div class="promise">' +
-      promiseRow("🤍", "var(--plum-soft)", "A space for moms", "A moderated community — please keep it kind") +
-      promiseRow("🫶", "var(--peach)", "Anonymous when you need it", "Other moms see \u201cAnonymous mom\u201d instead of your name") +
-      promiseRow("📍", "var(--teal-soft)", "Moms near you", isRealMode() ? "Meetups in your city · coming soon" : "Meetups in your city · add it whenever you like") +
-      "</div>" +
       '<div class="welcome-cta">' +
       '<div class="welcome-cta-header"><h3>Join the circle</h3><p>For moms · Kind · Moderated</p></div>' +
-      signInErrorCard() +
+      signInErrorCard() + inAppCard() +
       '<button class="btn btn-google btn-block" data-act="google-signin" id="google-signin">' + googleIcon(18) + "<span>Continue with Google</span></button>" +
       // 2026-10-14: real mode is Google-only. The phone path was a demo leftover
       // (fake number + fake code) that dead-ended a real beta mom, and "I already
@@ -754,6 +748,11 @@
       '<p class="tiny" style="margin-bottom:8px;font-weight:600">Moms supporting moms — not a replacement for your doctor or therapist.</p>' +
       '<p class="tiny terms-line" id="welcome-terms">By continuing you agree to our <a href="#privacy" id="welcome-privacy">Terms &amp; Privacy</a>.</p>' +
       '<p class="tiny" id="welcome-mode-line">' + (isRealMode() ? "Open beta · sign in with Google to join" : "Prototype · all people, posts and places are fictional demo data") + '</p>' +
+      "</div>" +
+      '<div class="promise">' +
+      promiseRow("🤍", "var(--plum-soft)", "A space for moms", "A moderated community — please keep it kind") +
+      promiseRow("🫶", "var(--peach)", "Anonymous when you need it", "Other moms see \u201cAnonymous mom\u201d instead of your name") +
+      promiseRow("📍", "var(--teal-soft)", "Moms near you", isRealMode() ? "Meetups in your city · coming soon" : "Meetups in your city · add it whenever you like") +
       "</div></div>" };
   };
   // Signed-out mom who arrived via an invite link: tell her the code is waiting.

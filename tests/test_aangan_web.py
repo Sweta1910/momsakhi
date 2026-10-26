@@ -1535,17 +1535,27 @@ ok(A.chromeIntentUrl(local) === 'intent://localhost:8765/#Intent;scheme=http;pac
 
     def test_welcome_card_per_browser(self):
         self._run(r"""
-let h = boot(UA.instagramIOS).V.welcome().html;
-ok(h.includes('id="iab-card"') && h.includes('To sign in, open MomSakhi in Chrome or Safari'), 'IG card: ' + h);
+// On initial page load: no in-app card shown proactively, direct Google sign-in presented.
+['instagramIOS', 'fbAndroid', 'androidChrome', 'iosSafari', 'whatsappLike', 'desktopChrome'].forEach(function (k) {
+  const wel = boot(UA[k]).V.welcome().html;
+  ok(!wel.includes('id="iab-card"'), k + ' shows no card on open');
+  ok(wel.includes('id="google-signin"'), k + ' has direct Google sign-in button');
+});
+
+// Card appears only when sign-in is actually blocked (showSignInBlocked)
+const ig = boot(UA.instagramIOS);
+try { ig.showSignInBlocked(); } catch (e) {}
+let h = ig.V.welcome().html;
+ok(h.includes('id="iab-card"') && h.includes('To sign in, open MomSakhi in Chrome or Safari'), 'IG blocked card: ' + h);
 ok(h.includes("inside Instagram's built-in browser") && h.includes('Open in Safari') && h.includes('id="iab-copy"'), 'IG iOS copy');
 ok(h.includes('value="https://momsakhi.com/"'), 'link field');
 ok(!h.includes('id="iab-chrome"'), 'no Chrome intent on iOS');
-ok(h.indexOf('id="iab-card"') < h.indexOf('id="google-signin"'), 'card above the Google button');
-h = boot(UA.fbAndroid).V.welcome().html;
+
+const fb = boot(UA.fbAndroid);
+try { fb.showSignInBlocked(); } catch (e) {}
+h = fb.V.welcome().html;
 ok(h.includes('id="iab-chrome"') && h.includes('href="intent://momsakhi.com/#Intent;scheme=https;package=com.android.chrome;end"'), 'FB Android intent: ' + h);
-['androidChrome', 'iosSafari', 'whatsappLike', 'desktopChrome'].forEach(function (k) {
-  ok(!boot(UA[k]).V.welcome().html.includes('iab-card'), k + ' shows no card');
-});
+
 // Sign-in failed with a webview error in an unrecognised browser -> same card.
 const A = boot(UA.whatsappLike);
 try { A.showSignInBlocked(); } catch (e) { /* render() needs a DOM; the flag is what matters */ }
@@ -1585,7 +1595,12 @@ Object.keys(more).forEach(function (name) {
   const r = A.inAppBrowser(more[name]);
   ok(r && r.name === name, name + ' -> ' + JSON.stringify(r));
 });
-const h = boot(more.WhatsApp).V.welcome().html;
+// Before sign-in block, no card shown
+ok(!boot(more.WhatsApp).V.welcome().html.includes('id="iab-card"'), 'no card before block');
+// After sign-in block, card shown
+const wa = boot(more.WhatsApp);
+try { wa.showSignInBlocked(); } catch (e) {}
+const h = wa.V.welcome().html;
 ok(h.includes('id="iab-card"') && h.includes("inside WhatsApp's built-in browser") && h.includes('id="iab-chrome"'), 'WhatsApp card: ' + h);
 ok(A.inAppBrowser('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/129 Mobile Safari/537.36 GSA/15.40') === null, 'Google app not warned');
 """)
