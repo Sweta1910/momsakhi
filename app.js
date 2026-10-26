@@ -738,7 +738,7 @@
       '<div class="welcome-cta">' +
       '<div class="welcome-cta-header"><h3>Join the circle</h3><p>For moms · Kind · Moderated</p></div>' +
       signInErrorCard() + inAppCard() +
-      '<button class="btn btn-google btn-block" data-act="google-signin" id="google-signin">' + googleIcon(18) + "<span>Continue with Google</span></button>" +
+      '<button class="btn btn-google btn-block" data-act="google-signin" id="google-signin">' + googleIcon(20) + "<span>Continue with Google</span></button>" +
       // 2026-10-14: real mode is Google-only. The phone path was a demo leftover
       // (fake number + fake code) that dead-ended a real beta mom, and "I already
       // have an account" skipped sign-in altogether. The prototype keeps both.

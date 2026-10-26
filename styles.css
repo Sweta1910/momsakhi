@@ -199,6 +199,8 @@ p { margin: 0; }
 .promise-row div span { font-size: 13px; color: var(--ink-2); }
 .welcome-cta { margin-top: auto; padding-top: 18px; display: grid; gap: 8px; }
 .welcome-cta-header { display: none; }
+.welcome-cta #google-signin { font-size: 17px; min-height: 52px; }
+.welcome-cta #google-signin .google-icon { width: 20px; height: 20px; }
 .welcome-cta .tiny { text-align: center; }
 /* Static "About MomSakhi" (index.html, crawlable). Before JS it is the only thing
    in #screen; after JS app.js moves it to the bottom of the welcome view. */
