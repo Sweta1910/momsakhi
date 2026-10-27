@@ -49,7 +49,9 @@
       hidden: [],         // post ids hidden by this user
       reports: [],        // demo-mode reports (real mode reads Firestore /reports)
       blocked: [],        // author nicknames / mom ids blocked
-      joined: {}          // circleId -> true
+      joined: {},         // circleId -> true
+      saved: {},          // postId -> true (bookmarked posts)
+      customEvents: []    // user-created meetups
     };
   }
   // City is whatever the mom types (any city, town or area worldwide -- India or
@@ -69,6 +71,8 @@
         // name, so old stores start with no city rather than a fake one.
         s.city = (typeof s.city === "string" && s.city !== "mv-sv") ? cleanCity(s.city) : "";
         delete s.waitlist;
+        s.saved = (s.saved && typeof s.saved === "object") ? s.saved : {};
+        s.customEvents = Array.isArray(s.customEvents) ? s.customEvents : [];
         return s;
       }
     } catch (e) { /* private mode or bad JSON: start fresh */ }
@@ -319,6 +323,8 @@
   function circleCount(c) { return isRealMode() ? "Open to every mom" : c.members + " moms"; }
 
   var ICONS = {
+    bookmark: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
+    "bookmark-solid": '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" fill="currentColor"/>',
     home: '<path d="M3.5 10.5 12 3.5l8.5 7V19a1.5 1.5 0 0 1-1.5 1.5h-4.5V15h-5v5.5H5A1.5 1.5 0 0 1 3.5 19z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     pin: '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
@@ -346,6 +352,85 @@
     book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20"/>',
     hand: '<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11m0-1V4a1.5 1.5 0 0 1 3 0v7m0-5.5a1.5 1.5 0 0 1 3 0V12m0-3.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1.5a6 6 0 0 1-4.6-2.2L5 15.5a1.6 1.6 0 0 1 2.4-2.1L8 14"/>'
   };
+
+  // ---------------------------------------------------------------- helpers: meetups & saved
+  function isSaved(id) {
+    return !!(store.saved && store.saved[id]);
+  }
+  function allEvents() {
+    var custom = (store.customEvents || []).slice();
+    if (isRealMode()) return custom;
+    return custom.concat(D.events || []);
+  }
+  function findEvent(id) {
+    var evs = allEvents();
+    for (var i = 0; i < evs.length; i++) {
+      if (evs[i].id === id) return evs[i];
+    }
+    return null;
+  }
+  function openPhotoModal(url) {
+    openSheet('<div style="text-align:center;padding:8px 0;"><img src="' + url + '" alt="Expanded photo" style="max-width:100%;max-height:75vh;border-radius:12px;object-fit:contain;display:block;margin:0 auto;"><button class="btn btn-ghost btn-block" data-act="sheet-close" style="margin-top:14px">Close</button></div>');
+  }
+  function handlePhotoSelect(file) {
+    if (!file || !file.type.match(/^image\//)) return;
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var img = new Image();
+      img.onload = function () {
+        var canvas = document.createElement("canvas");
+        var ctx = canvas.getContext("2d");
+        var maxDim = 1200;
+        var width = img.width;
+        var height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+        var dataUrl = canvas.toDataURL("image/jpeg", 0.78);
+        askDraft.photo = dataUrl;
+        rerender();
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+  function openCreateMeetupSheet() {
+    var circleOptions = (D.circles || []).map(function (c) {
+      return '<option value="' + c.id + '">' + c.emoji + " " + esc(c.name) + '</option>';
+    }).join("");
+    openSheet(
+      '<h3>Host a Meetup</h3>' +
+      '<p class="muted">Organize a small, casual gathering for moms near you.</p>' +
+      '<div style="display:grid;gap:12px;margin-top:14px;text-align:left;">' +
+        '<div class="field"><label for="new-meetup-title">Title</label>' +
+        '<input class="input" id="new-meetup-title" placeholder="e.g. Chai & stroller walk" maxlength="80"></div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+          '<div class="field"><label for="new-meetup-date">Date</label><input type="date" class="input" id="new-meetup-date"></div>' +
+          '<div class="field"><label for="new-meetup-time">Time</label><input type="text" class="input" id="new-meetup-time" placeholder="e.g. 10:00 AM"></div>' +
+        '</div>' +
+        '<div class="field"><label for="new-meetup-place">Location / Place</label>' +
+        '<input class="input" id="new-meetup-place" placeholder="e.g. Community Park or Cafe" maxlength="100"></div>' +
+        '<div class="field"><label for="new-meetup-circle">Circle / Topic</label>' +
+        '<select class="input" id="new-meetup-circle">' + circleOptions + '</select></div>' +
+        '<div class="field"><label for="new-meetup-desc">Description</label>' +
+        '<textarea class="input" id="new-meetup-desc" placeholder="What should moms bring? What age group?" maxlength="600" style="min-height:80px;"></textarea></div>' +
+        '<div style="margin-top:10px;display:grid;gap:8px;">' +
+          '<button class="btn btn-primary btn-block" data-act="save-meetup" id="save-meetup-submit">Create Meetup</button>' +
+          '<button class="btn btn-ghost btn-block" data-act="sheet-close">Cancel</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
   function icon(name, cls) {
     return '<svg class="' + (cls || "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + "</svg>";
   }
@@ -602,9 +687,11 @@
     var name = p.anon ? "Anonymous mom" : (p.author || "Mom");
     var count = (window.Backend && window.Backend.isReal) ? (p.replyCount || 0) : answersFor(p).length;
     var timeStr = esc(p.time) + (p.editedAt ? " <span style='opacity:0.8'>(edited)</span>" : "");
+    var saved = isSaved(p.id);
     return '<article class="card post ' + (opts.full ? "" : "clickable") + '" ' + (opts.full ? "" : 'data-href="#q/' + p.id + '"') + ' id="post-' + p.id + '">' +
       '<div class="post-head">' + avatar(p.anon ? null : p.author, p.hue) +
       '<div class="who"><b>' + esc(name) + "</b><span>" + esc(p.meta) + " · " + timeStr + "</span></div>" +
+      '<button class="icon-btn save-btn" data-act="toggle-save" data-id="' + p.id + '" aria-label="' + (saved ? "Unsave post" : "Save post") + '" aria-pressed="' + saved + '" style="margin-right:2px;' + (saved ? "color:var(--terracotta);" : "") + '">' + icon(saved ? "bookmark-solid" : "bookmark") + "</button>" +
       '<button class="icon-btn" data-act="post-menu" data-id="' + p.id + '" aria-label="More options">' + icon("more") + "</button>" +
       "</div>" +
       '<div class="post-tagrow" style="display:flex;gap:6px;margin-bottom:8px">' +
@@ -614,6 +701,7 @@
       '</div>' +
       "<h3>" + esc(p.title) + "</h3>" +
       (p.body ? '<p class="body ' + (opts.full ? "" : "clamp") + '">' + esc(p.body) + "</p>" : "") +
+      (p.photo ? '<div class="post-photo-wrap" style="margin-top:10px;border-radius:12px;overflow:hidden;cursor:pointer;" data-act="expand-photo" data-url="' + p.photo + '"><img src="' + p.photo + '" alt="Attached photo" class="post-photo" style="width:100%;max-height:420px;object-fit:cover;display:block;border-radius:12px;"></div>' : "") +
       '<div class="post-foot">' + reactionBar(p.id, p.reactions || {}) +
       (opts.full ? "" : '<span class="replies-count">' + icon("chat") + count + "</span>") +
       "</div></article>";
@@ -938,23 +1026,31 @@
       '<button class="icon-btn" data-act="install-dismiss" id="install-dismiss" aria-label="Dismiss">✕</button></div>';
   }
 
+  var homeSeg = "all";
   V.home = function () {
     var circles = D.circles.map(function (c) {
       return '<a class="card circle-card" href="#circle/' + c.id + '" style="text-decoration:none;color:inherit"><span class="ce">' + c.emoji + "</span><b>" + esc(c.name) + "</b><span>" + circleCount(c) + "</span></a>";
     }).join("");
     var isLoading = window.Backend && window.Backend.isReal && window.Backend.posts === null;
-    var feed = allPosts().map(function (p) { return postCard(p); }).join("");
+    var all = allPosts();
+    var savedCount = Object.keys(store.saved || {}).filter(function (k) { return store.saved[k]; }).length;
+    var feedPosts = homeSeg === "saved" ? all.filter(function (p) { return isSaved(p.id); }) : all;
+    var feed = feedPosts.map(function (p) { return postCard(p); }).join("");
     var feedHtml = isLoading
       ? '<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">Loading posts...</div>'
-      : (feed || '<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">Be the first to share. You\'re not alone.</div>');
-    var countStr = isLoading ? "..." : allPosts().length + " posts";
+      : (feed || (homeSeg === "saved"
+          ? emptyState("⭐", "No saved posts yet", "Tap the bookmark icon on any post to save it here for later.")
+          : '<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">Be the first to share. You\'re not alone.</div>'));
+    var countStr = isLoading ? "..." : feedPosts.length + " posts";
+    var segs = '<div class="seg" role="tablist" style="margin:10px 18px 0;max-width:100%;"><button data-act="home-seg" data-v="all" aria-pressed="' + (homeSeg === "all") + '">Fresh today</button><button data-act="home-seg" data-v="saved" aria-pressed="' + (homeSeg === "saved") + '">⭐ Saved (' + savedCount + ')</button></div>';
     return { tab: "home", html:
       '<div class="view">' + homeTop() +
       '<div class="hello"><h2>' + greeting() + ", " + esc(store.profile.nickname) + ' <span aria-hidden="true">🌼</span></h2><p>Here\'s what moms near you are talking about.</p></div>' + installHint() +
       '<div class="section" style="padding:0;margin-top:14px"><div class="section-head" style="padding:0 18px"><h2>Your circles</h2><span class="muted">Swipe →</span></div>' +
       '<div class="circles-row">' + circles + "</div></div>" +
       '<div class="kind-banner"><span class="kb-i">💛</span><div><b>A kind space, always</b><span>Supportive reactions only — no downvotes, no shaming.</span></div></div>' +
-      '<div class="section-head" style="padding:0 18px"><h2>Fresh today</h2><span class="muted">' + countStr + '</span></div>' +
+      segs +
+      '<div class="section-head" style="padding:0 18px;margin-top:10px;"><h2>' + (homeSeg === "saved" ? "Saved posts" : "Fresh today") + '</h2><span class="muted">' + countStr + '</span></div>' +
       '<div class="feed">' + feedHtml + "</div></div>" };
   };
 
@@ -971,7 +1067,7 @@
       '<div class="feed">' + (posts.length ? posts.map(function (p) { return postCard(p); }).join("") : emptyState("🌱", "Be the first to post here", "Your question could help another mom feel less alone.")) + "</div></div>" };
   };
 
-  var askDraft = { circle: null, title: "", body: "", anon: null, nudge: null, intent: null };
+  var askDraft = { circle: null, title: "", body: "", anon: null, nudge: null, intent: null, photo: null };
   V.ask = function (circleId) {
     if (circleId && circle(circleId)) askDraft.circle = circleId;
     if (askDraft.anon === null) askDraft.anon = store.profile.anonDefault;
@@ -985,6 +1081,11 @@
       '<div class="field"><span class="label">Circle <span class="tiny">(optional)</span></span><div class="circle-pick">' + picks + "</div></div>" +
       '<div class="field"><label for="ask-title">Your question</label><input class="input" id="ask-title" data-input="ask-title" maxlength="140" placeholder="e.g. How did you handle the first week of daycare?" value="' + esc(askDraft.title) + '"></div>' +
       '<div class="field"><label for="ask-body">Add details <span class="tiny">(optional)</span></label><textarea class="input" id="ask-body" data-input="ask-body" maxlength="1200" placeholder="Share as much or as little as you like. This is a safe space.">' + esc(askDraft.body) + "</textarea>" +
+      '<div style="margin-top:8px;display:flex;align-items:center;gap:10px;">' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-act="ask-add-photo" id="ask-photo-btn" style="display:inline-flex;align-items:center;gap:6px;">' + icon("camera") + ' Add photo</button>' +
+      '<input type="file" id="ask-photo-input" accept="image/*" style="display:none">' +
+      '</div>' +
+      (askDraft.photo ? '<div class="photo-preview" style="position:relative;display:inline-block;margin-top:10px;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.12);"><img src="' + askDraft.photo + '" alt="Upload preview" style="max-height:160px;max-width:100%;display:block;border-radius:10px;"><button type="button" class="icon-btn remove-photo-btn" data-act="ask-remove-photo" aria-label="Remove photo" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.65);color:#fff;width:28px;height:28px;border-radius:50%;padding:4px;border:none;cursor:pointer;">' + icon("close") + '</button></div>' : '') +
       '<p class="demo-link">✨ <button class="link" data-act="ask-demo" id="kindness-demo">See the kindness check in action</button></p></div>' +
       '<div style="margin-top:12px;margin-bottom:12px"><label style="font-weight:600;font-size:14px;color:var(--ink)">Tag your post <span class="tiny muted" style="font-weight:normal">(optional)</span></label><div class="chips" style="margin-top:8px">' +
       '<button class="chip" data-act="ask-intent" data-val="vent" aria-pressed="' + (askDraft.intent === 'vent') + '">I just need to vent</button>' +
@@ -1136,29 +1237,92 @@
     if (!hasCity()) return cityGate("meetups", "Meetups");
     var head = '<div class="view"><header class="topbar"><h1>Meetups</h1></header>' + cityStrip() +
       '<p class="muted" style="padding:0 18px 14px;margin-top:-6px;font-size:14px">Small, mom-hosted, in public places in ' + esc(store.city) + ".</p>";
-    var host = '<div class="card host-cta"><span style="font-size:28px">🪔</span><div class="grow"><b>Host a meetup</b><span>Stroller walk, chai morning, toy swap — you pick.</span></div><button class="btn btn-ghost btn-sm" data-act="soon">Start</button></div>';
-    // Real mode: meetups aren't stored in Firestore yet, so there is nothing real
-    // to list -- never show the fictional demo events to a real mom, and no "Host"
-    // button that only says "coming soon" in a toast.
-    if (isRealMode()) {
+    var host = '<div class="card host-cta"><span style="font-size:28px">🪔</span><div class="grow"><b>Host a meetup</b><span>Stroller walk, chai morning, toy swap — you pick.</span></div><button class="btn btn-ghost btn-sm" data-act="create-meetup" id="host-meetup-btn">Start</button></div>';
+    var all = allEvents();
+    if (isRealMode() && all.length === 0) {
       return { tab: "meetups", html: head +
-        '<div class="events" id="meetups-soon">' + emptyState("🗓️", "No meetups in " + esc(store.city) + " yet", "Meetups are coming soon — small, public and mom-led.") + "</div></div>" };
+        '<div class="events" id="meetups-soon">' + emptyState("🗓️", "No meetups in " + esc(store.city) + " yet", "Meetups are coming soon — small, public and mom-led.") + "</div>" + host + "</div>" };
     }
-    var evs = D.events.filter(function (e) { return meetupsSeg === "all" || store.rsvp[e.id]; });
+    var evs = all.filter(function (e) {
+      if (meetupsSeg === "going") return !!(store.rsvp && store.rsvp[e.id]);
+      if (meetupsSeg === "city") {
+        var c = (store.city || "").toLowerCase();
+        return (e.city && e.city.toLowerCase() === c) || (e.place && e.place.toLowerCase().indexOf(c) >= 0);
+      }
+      return true;
+    });
     var list = evs.map(function (e) {
-      var going = !!store.rsvp[e.id];
-      var faces = D.moms.slice(0, 3).map(function (m) { return avatar(m.nickname, m.hue, "sm"); }).join("");
-      return '<article class="card event" id="event-' + e.id + '"><div class="date-tile"><div class="m">' + e.month + '</div><div class="d">' + e.date + '</div><div class="w">' + e.day + "</div></div>" +
-        '<div class="grow"><h3>' + e.emoji + " " + esc(e.title) + "</h3>" +
+      var going = !!(store.rsvp && store.rsvp[e.id]);
+      var faces = (D.moms || []).slice(0, 3).map(function (m) { return avatar(m.nickname, m.hue, "sm"); }).join("");
+      return '<article class="card event clickable" data-href="#meetup/' + e.id + '" id="event-' + e.id + '"><div class="date-tile"><div class="m">' + esc(e.month) + '</div><div class="d">' + esc(e.date) + '</div><div class="w">' + esc(e.day) + "</div></div>" +
+        '<div class="grow"><h3>' + (e.emoji || "🗓️") + " " + esc(e.title) + "</h3>" +
         '<div class="meta"><span>' + icon("clock") + esc(e.time) + "</span><span>" + icon("pin") + esc(e.place) + "</span></div>" +
-        '<p class="desc">' + esc(e.desc) + '</p><div class="chips" style="margin-top:8px;gap:6px">' + e.tags.map(function (t) { return '<span class="tag">' + esc(t) + "</span>"; }).join("") + '<span class="tag teal">Hosted by ' + esc(e.host) + "</span></div>" +
-        '<div class="event-foot"><span class="avatar-stack">' + faces + '</span><span class="going">' + (e.going + (going ? 1 : 0)) + " going</span>" +
+        '<p class="desc">' + esc(e.desc) + '</p><div class="chips" style="margin-top:8px;gap:6px">' + (e.tags || []).map(function (t) { return '<span class="tag">' + esc(t) + "</span>"; }).join("") + '<span class="tag teal">Hosted by ' + esc(e.host) + "</span></div>" +
+        '<div class="event-foot"><span class="avatar-stack">' + faces + '</span><span class="going">' + ((e.going || 0) + (going ? 1 : 0)) + " going</span>" +
         '<button class="btn btn-primary btn-sm rsvp" data-act="rsvp" data-id="' + e.id + '" aria-pressed="' + going + '" id="rsvp-' + e.id + '">' + (going ? icon("check") + "Going" : "RSVP") + "</button></div></div></article>";
     }).join("");
-    return { tab: "meetups", html: head +
-      '<div class="seg" role="tablist"><button data-act="seg" data-v="all" aria-pressed="' + (meetupsSeg === "all") + '">Upcoming</button><button data-act="seg" data-v="going" aria-pressed="' + (meetupsSeg === "going") + '">Going (' + Object.keys(store.rsvp).filter(function (k) { return store.rsvp[k]; }).length + ")</button></div>" +
-      '<div class="events">' + (list || emptyState("🗓️", "Nothing yet", "RSVP to a meetup and it will show up here.")) + "</div>" +
+    var goingCount = Object.keys(store.rsvp || {}).filter(function (k) { return store.rsvp[k]; }).length;
+    var segs = '<div class="seg" role="tablist"><button data-act="seg" data-v="all" aria-pressed="' + (meetupsSeg === "all") + '">Upcoming</button><button data-act="seg" data-v="city" aria-pressed="' + (meetupsSeg === "city") + '">In ' + esc(store.city) + '</button><button data-act="seg" data-v="going" aria-pressed="' + (meetupsSeg === "going") + '">Going (' + goingCount + ")</button></div>";
+    return { tab: "meetups", html: head + segs +
+      '<div class="events">' + (list || emptyState("🗓️", "Nothing yet", "No meetups found. Host one for moms in your area!")) + "</div>" +
       host + "</div>" };
+  };
+
+  V.meetup = function (id) {
+    var e = findEvent(id);
+    if (!e) return V.meetups();
+    var going = !!(store.rsvp && store.rsvp[e.id]);
+    var totalGoing = (e.going || 0) + (going ? 1 : 0);
+    var attendees = [];
+    if (going) attendees.push({ nickname: store.profile.nickname || "You", hue: store.profile.hue || "teal", isYou: true });
+    (D.moms || []).slice(0, 4).forEach(function (m) {
+      attendees.push({ nickname: m.nickname, hue: m.hue, isYou: false });
+    });
+    var attendeeHtml = attendees.map(function (a) {
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);">' +
+        avatar(a.isYou ? (store.profile.nickname || "You") : a.nickname, a.hue, "sm") +
+        '<div><b>' + esc(a.nickname) + (a.isYou ? ' <span class="tag teal" style="font-size:11px;">You</span>' : "") + '</b></div>' +
+      '</div>';
+    }).join("");
+
+    return { tab: "meetups", html:
+      '<div class="view"><div class="backbar"><button class="icon-btn" data-act="back" aria-label="Back">' + icon("back") + '</button><span class="title">Meetup Details</span></div>' +
+      '<div style="padding:0 16px 24px;">' +
+      '<article class="card" style="padding:18px;margin-bottom:14px;">' +
+        '<div style="display:flex;gap:14px;align-items:flex-start;">' +
+          '<div class="date-tile"><div class="m">' + esc(e.month) + '</div><div class="d">' + esc(e.date) + '</div><div class="w">' + esc(e.day) + '</div></div>' +
+          '<div style="flex:1;">' +
+            '<h2 style="font-size:20px;font-family:var(--font-display);margin-bottom:8px;">' + (e.emoji || "🗓️") + " " + esc(e.title) + '</h2>' +
+            '<div class="chips" style="gap:6px;margin-bottom:10px;">' + (e.tags || []).map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join("") + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="meta" style="font-size:14px;display:grid;gap:8px;margin:16px 0;padding:12px;background:var(--sand-1);border-radius:10px;">' +
+          '<div style="display:flex;gap:8px;align-items:center;">' + icon("clock") + '<span>' + esc(e.time) + '</span></div>' +
+          '<div style="display:flex;gap:8px;align-items:center;">' + icon("pin") + '<span>' + esc(e.place) + '</span></div>' +
+        '</div>' +
+        '<div style="margin:16px 0;">' +
+          '<h3 style="font-size:15px;margin-bottom:6px;">About this meetup</h3>' +
+          '<p style="font-size:14px;line-height:1.55;color:#4A3B34;">' + esc(e.desc) + '</p>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;margin:16px 0;">' +
+          avatar(e.host, e.hue) +
+          '<div><span class="tiny muted">Host</span><div style="font-weight:700;">' + esc(e.host) + '</div></div>' +
+        '</div>' +
+        '<div style="margin-top:20px;">' +
+          '<button class="btn ' + (going ? "btn-ghost" : "btn-primary") + ' btn-block" data-act="rsvp" data-id="' + e.id + '" id="detail-rsvp-' + e.id + '">' +
+            (going ? icon("check") + "Going · Tap to cancel" : "RSVP / Going") +
+          '</button>' +
+        '</div>' +
+      '</article>' +
+      '<div class="card" style="padding:16px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+          '<h3 style="font-size:16px;margin:0;">Attendees (' + totalGoing + ')</h3>' +
+          '<span class="tiny muted">' + (going ? "You are attending" : "Join them!") + '</span>' +
+        '</div>' +
+        '<div class="attendee-list">' + attendeeHtml + '</div>' +
+      '</div>' +
+      '</div></div>'
+    };
   };
 
   var MOCK_REPLIES = ["That sounds lovely 😊", "Haha same here! Toddler life 😅", "Yes! Let's do it. Saturday works for me.", "Aww thank you, that means a lot 💛", "I'll bring the chai ☕"];
@@ -2174,12 +2338,13 @@
                 replyCount: 0,
                 uid: isAnon ? undefined : window.Backend.user.uid,
                 intent: askDraft.intent,
+                photo: askDraft.photo,
                 reactions: { hug: 0, been: 0, helpful: 0 }
               };
               var exists = window.Backend.posts.some(function(p) { return p.id === docRef.id; });
               if (!exists) window.Backend.posts.unshift(optimisticPost);
             }
-            askDraft = { circle: null, title: "", body: "", anon: null, nudge: null, intent: null };
+            askDraft = { circle: null, title: "", body: "", anon: null, nudge: null, intent: null, photo: null };
             go("#q/" + docRef.id); toast("Posted to " + cn + " 💛");
           }).catch(function (e) { askDraft.saving = false; failToast("post", el)(e); });
           break;
@@ -2187,9 +2352,10 @@
 
         var p = { id: "u" + Date.now(), circle: cId, anon: isAnon, author: authorName, hue: D.me.hue,
           meta: meta, time: "now", title: askDraft.title.trim(), body: askDraft.body.trim(), intent: askDraft.intent,
+          photo: askDraft.photo,
           reactions: { hug: 0, been: 0, helpful: 0 }, answers: [] };
         store.posts.unshift(p); save();
-        askDraft = { circle: null, title: "", body: "", anon: null, nudge: null, intent: null };
+        askDraft = { circle: null, title: "", body: "", anon: null, nudge: null, intent: null, photo: null };
         go("#q/" + p.id); toast("Posted to " + cn + " 💛"); break;
       }
       case "kind-use": {
@@ -2510,7 +2676,77 @@
         }, 2600);
         break;
       }
-      case "rsvp": store.rsvp[id] = !store.rsvp[id]; save(); rerender(); toast(store.rsvp[id] ? "You're going! We'll remind you the day before 🌼" : "RSVP removed"); break;
+      case "rsvp": {
+        store.rsvp = store.rsvp || {};
+        store.rsvp[id] = !store.rsvp[id];
+        save();
+        rerender();
+        toast(store.rsvp[id] ? "You're going! We'll remind you the day before 🌼" : "RSVP removed");
+        break;
+      }
+      case "toggle-save": {
+        store.saved = store.saved || {};
+        if (store.saved[id]) {
+          delete store.saved[id];
+          toast("Post removed from saved");
+        } else {
+          store.saved[id] = true;
+          toast("Post saved to bookmarks ⭐");
+        }
+        save();
+        rerender();
+        break;
+      }
+      case "home-seg": homeSeg = el.getAttribute("data-v"); rerender(); break;
+      case "create-meetup": openCreateMeetupSheet(); break;
+      case "save-meetup": {
+        var t = $("#new-meetup-title"), d = $("#new-meetup-date"), tm = $("#new-meetup-time"), p = $("#new-meetup-place"), c = $("#new-meetup-circle"), ds = $("#new-meetup-desc");
+        var title = t ? t.value.trim() : "";
+        var dateVal = d ? d.value.trim() : "";
+        var timeVal = tm ? tm.value.trim() : "10:00 AM";
+        var placeVal = p ? p.value.trim() : "";
+        var circleId = c ? c.value : "";
+        var descVal = ds ? ds.value.trim() : "";
+        if (!title || title.length < 3) { toast("Please add a title for your meetup"); if (t) t.focus(); break; }
+        if (!placeVal) { toast("Please specify a location"); if (p) p.focus(); break; }
+        var dateObj = dateVal ? new Date(dateVal + "T00:00:00") : new Date();
+        var months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+        var days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+        var mStr = months[dateObj.getMonth()];
+        var dStr = String(dateObj.getDate());
+        var wStr = days[dateObj.getDay()];
+        var cObj = circle(circleId);
+        var cName = cObj ? cObj.name : "Community";
+        var newEv = {
+          id: "ev_" + Date.now(),
+          title: title,
+          emoji: "🗓️",
+          month: mStr,
+          date: dStr,
+          day: wStr,
+          time: timeVal,
+          place: placeVal,
+          city: store.city || "",
+          host: store.profile.nickname || "SunnyMom",
+          hue: store.profile.hue || "teal",
+          going: 1,
+          tags: [cName, "Mom-hosted"],
+          desc: descVal || ("A casual meetup hosted by " + (store.profile.nickname || "a mom") + ".")
+        };
+        store.customEvents = store.customEvents || [];
+        store.customEvents.unshift(newEv);
+        store.rsvp = store.rsvp || {};
+        store.rsvp[newEv.id] = true;
+        save();
+        closeSheet();
+        rerender();
+        go("#meetup/" + newEv.id);
+        toast("Meetup created! 🎉");
+        break;
+      }
+      case "ask-add-photo": { var fi = $("#ask-photo-input"); if (fi) fi.click(); break; }
+      case "ask-remove-photo": askDraft.photo = null; rerender(); break;
+      case "expand-photo": { var url = el.getAttribute("data-url"); if (url) openPhotoModal(url); break; }
       case "seg": meetupsSeg = el.getAttribute("data-v"); rerender(); break;
       case "policy": store.msgPolicy = el.getAttribute("data-v"); save(); rerender(); break;
       case "chat-send": {
@@ -2941,6 +3177,9 @@
       store.safetyCountry = e.target.value;
       save();
       render();
+    }
+    if (e.target.id === "ask-photo-input" && e.target.files && e.target.files[0]) {
+      handlePhotoSelect(e.target.files[0]);
     }
   });
 

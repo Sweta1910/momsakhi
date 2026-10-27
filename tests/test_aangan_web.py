@@ -2322,3 +2322,80 @@ ok(!/verif(y|ied) (your|her) identity|verified mom/i.test(p), 'overclaim');
         self.assertNotIn("<b>invite-only</b>", self.static_privacy)
         with open(os.path.join(WEB_DIR, "index.html"), encoding="utf-8") as fh:
             self.assertNotIn("invite-only", fh.read())
+
+
+class TestMeetupsPhotosBookmarks(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(WEB_DIR, "app.js"), encoding="utf-8") as f:
+            cls.app = f.read()
+        with open(os.path.join(WEB_DIR, "styles.css"), encoding="utf-8") as f:
+            cls.css = f.read()
+
+    def test_meetups_features_structural(self):
+        self.assertIn("V.meetup = function", self.app)
+        self.assertIn("openCreateMeetupSheet", self.app)
+        self.assertIn('data-act="create-meetup"', self.app)
+        self.assertIn('data-act="save-meetup"', self.app)
+        self.assertIn('data-act="rsvp"', self.app)
+        self.assertIn(".event.clickable", self.css)
+        self.assertIn(".attendee-list", self.css)
+
+    def test_photo_upload_features_structural(self):
+        self.assertIn("handlePhotoSelect", self.app)
+        self.assertIn('id="ask-photo-input"', self.app)
+        self.assertIn('data-act="ask-add-photo"', self.app)
+        self.assertIn('data-act="ask-remove-photo"', self.app)
+        self.assertIn('data-act="expand-photo"', self.app)
+        self.assertIn(".post-photo", self.css)
+        self.assertIn(".photo-preview", self.css)
+
+    def test_saved_bookmarks_features_structural(self):
+        self.assertIn('data-act="toggle-save"', self.app)
+        self.assertIn('data-act="home-seg"', self.app)
+        self.assertIn("isSaved", self.app)
+        self.assertIn("bookmark-solid", self.app)
+        self.assertIn(".save-btn", self.css)
+
+    def test_new_features_rendering(self):
+        node = _node()
+        if not node:
+            self.skipTest("node not installed")
+        src = r"""
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const webDir = %r;
+const dataJs = fs.readFileSync(path.join(webDir, 'data.js'), 'utf8');
+const appJs = fs.readFileSync(path.join(webDir, 'app.js'), 'utf8');
+function boot(seed) {
+  const ls = { store: {}, getItem(k) { return this.store[k] || null; }, setItem(k, v) { this.store[k] = v; }, removeItem(k) { delete this.store[k]; } };
+  if (seed) ls.store['aangan.demo.v1'] = JSON.stringify(seed);
+  const w = { location: { hash: '#home', search: '', hostname: 'localhost' }, localStorage: ls,
+    document: { addEventListener() {}, querySelector() { return null; }, getElementById() { return null; }, body: { setAttribute() {} } },
+    Backend: { isReal: false }, console: console, setTimeout: setTimeout, clearTimeout: clearTimeout };
+  w.window = w;
+  vm.runInContext(dataJs, vm.createContext(w)); vm.runInContext(appJs, w);
+  return w.AANGAN;
+}
+function ok(c, m) { if (!c) throw new Error(m); }
+
+// 1. Meetups test
+const A = boot({ onboarded: true, city: 'Pune' });
+const m = A.V.meetups().html;
+ok(m.includes('Upcoming') && m.includes('In Pune') && m.includes('data-act="create-meetup"'), 'meetups list or tabs: ' + m);
+const d = A.V.meetup('e1').html;
+ok(d.includes('Shoreline') && d.includes('Attendees') && d.includes('About this meetup'), 'meetup details: ' + d);
+
+// 2. Photo preview in compose
+const ask = A.V.ask().html;
+ok(ask.includes('id="ask-photo-input"') && ask.includes('data-act="ask-add-photo"'), 'ask view photo button: ' + ask);
+
+// 3. Saved posts toggle & filter on home
+const h = A.V.home().html;
+ok(h.includes('Fresh today') && h.includes('⭐ Saved') && h.includes('data-act="home-seg"'), 'home view saved tab: ' + h);
+ok(h.includes('data-act="toggle-save"'), 'post card save button: ' + h);
+
+console.log('OK');
+""" % WEB_DIR
+        r = subprocess.run([node, "-e", src], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("OK", r.stdout)

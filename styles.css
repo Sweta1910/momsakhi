@@ -878,3 +878,16 @@ textarea.input { min-height: 140px; resize: none; line-height: 1.55; }
 .invite-code { font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .06em; }
 .invite-view .link { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; cursor: pointer; }
 .invite-view a { color: var(--teal); font-weight: 700; }
+
+/* ---------- Meetups, Photo Uploads & Bookmarks (2026-10-27) ---------- */
+.event.clickable { cursor: pointer; }
+.event.clickable:hover { box-shadow: var(--shadow-2); }
+.attendee-list > * + * { border-top: 1px solid var(--line); }
+.save-btn { transition: color 0.15s ease, transform 0.1s ease; }
+.save-btn[aria-pressed="true"] { color: var(--terracotta); }
+.save-btn:active { transform: scale(0.9); }
+.post-photo-wrap { margin-top: 10px; border-radius: 12px; overflow: hidden; background: var(--sand-2); }
+.post-photo { width: 100%; max-height: 420px; object-fit: cover; display: block; border-radius: 12px; }
+.photo-preview { position: relative; display: inline-block; margin-top: 8px; border-radius: 10px; overflow: hidden; }
+.photo-preview img { max-height: 160px; max-width: 100%; display: block; border-radius: 10px; }
+.photo-preview .remove-photo-btn { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,0.65); color: #fff; width: 28px; height: 28px; border-radius: 50%; padding: 4px; border: none; cursor: pointer; }
