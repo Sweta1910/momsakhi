@@ -1716,10 +1716,13 @@
     store.authMethod = "google";
     store.verify.google = true;
     var firstName = u.displayName ? (u.displayName.split(" ")[0] || u.displayName) : "Mom";
-    store.profile.nickname = firstName;
+    store.profile.nickname = store.profile.nickname || firstName;
     store.profile.fullName = u.displayName || "";
     store.profile.email = u.email || "";
+    store.onboarded = true;
     save();
+    // Navigate straight to MomSakhi home page immediately with zero delay
+    go("#home");
     // 2026-10-14 open beta: accessFor() always resolves true, so she goes
     // straight to onboarding (new mom) or home (has a profile).
     return accessFor(u).then(function (ok) {
@@ -1735,14 +1738,28 @@
         applyProfile(p);
         store.onboarded = true;
         save();
-        go("#home");
+        var at = parseHash().name;
+        if (at === "welcome" || !at) {
+          go("#home");
+        } else {
+          render(true);
+        }
       } else {
-        toast("Signed in ✓");
-        go("#onboard/city");
+        if (!store.profile.city) {
+          toast("Signed in ✓");
+          go("#onboard/city");
+        } else {
+          store.onboarded = true;
+          save();
+          go("#home");
+        }
       }
     }).catch(function (e) {
       failToast("load your profile", null)(e);
-      go("#onboard/city");
+      var at = parseHash().name;
+      if (at === "welcome" || !at) {
+        go("#home");
+      }
     });
   }
   // One membership check per signed-in uid (memoised; onAuth and the popup path
@@ -1813,10 +1830,6 @@
       btn.disabled = false;
       btn.style.pointerEvents = "";
       btn.style.opacity = "";
-      var span = btn.querySelector("span");
-      if (span && btn.dataset.origText) {
-        span.textContent = btn.dataset.origText;
-      }
     }
     if (!e) return;
     if (isWebviewAuthError(e)) { console.warn("MomSakhi: sign-in blocked in this browser", e); showSignInBlocked(); return; }
@@ -1831,11 +1844,6 @@
       if (btn) {
         btn.style.pointerEvents = "none";
         btn.style.opacity = "0.75";
-        var span = btn.querySelector("span");
-        if (span) {
-          btn.dataset.origText = span.textContent;
-          span.textContent = "Signing you in…";
-        }
       }
       try { sessionStorage.setItem("momsakhi_signing_in", "1"); } catch (_) {}
       window.Backend.signInWithGoogle().then(function(result) {
@@ -1843,10 +1851,6 @@
            if (btn) {
              btn.style.pointerEvents = "";
              btn.style.opacity = "";
-             var span = btn.querySelector("span");
-             if (span && btn.dataset.origText) {
-               span.textContent = btn.dataset.origText;
-             }
            }
            return;
          }
@@ -2822,7 +2826,11 @@
             }
             try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
             var curRoute = parseHash().name;
-            if (curRoute !== "welcome" && !cached) render();  // "Checking your invite…"
+            if (curRoute === "welcome" && (store.onboarded || store.profile.city)) {
+              go("#home");
+            } else if (curRoute !== "welcome" && !cached) {
+              render();  // "Checking your invite…"
+            }
             accessFor(u).then(function (ok) {
               if (window.Backend.user !== u) return;
               if (!ok) { syncPosts(); syncReplies(); syncMarks(); render(); autoRedeem(); return; }
