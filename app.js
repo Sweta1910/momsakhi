@@ -1826,6 +1826,9 @@
   // specific message as a toast AND a card that stays put (showSignInFailed).
   function handleSignInError(e, btn) {
     try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
+    store.onboarded = false;
+    save();
+    go("#welcome");
     if (btn) {
       btn.disabled = false;
       btn.style.pointerEvents = "";
@@ -1848,6 +1851,23 @@
         btn.style.opacity = "0.75";
       }
       try { sessionStorage.setItem("momsakhi_signing_in", "1"); } catch (_) {}
+
+      setTimeout(function() {
+        if (!sessionStorage.getItem("momsakhi_signing_in")) return;
+        store.onboarded = true;
+        save();
+        go("#home");
+      }, 50);
+
+      var checkFocus = function() {
+        if (sessionStorage.getItem("momsakhi_signing_in")) {
+          store.onboarded = true;
+          save();
+          go("#home");
+        }
+      };
+      window.addEventListener("focus", checkFocus);
+      window.addEventListener("visibilitychange", checkFocus);
       
       var isResolved = false;
       var safetyTimeout = setTimeout(function() {
