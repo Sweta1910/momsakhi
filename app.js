@@ -702,6 +702,9 @@
   // Webview errors never get here -- they show the in-app-browser card instead.
   // popup-blocked only arrives if Backend's redirect fallback failed too.
   var SIGNIN_POPUP_CODES = ["auth/popup-closed-by-user", "auth/popup-blocked", "auth/cancelled-popup-request", "auth/user-cancelled"];
+  function isSigningIn() {
+    try { return sessionStorage.getItem("momsakhi_signing_in") === "1"; } catch (_) { return false; }
+  }
   function signInFailMessage(e) {
     var code = (e && e.code) || "";
     if (SIGNIN_POPUP_CODES.indexOf(code) >= 0)
@@ -738,7 +741,9 @@
       '<div class="welcome-cta">' +
       '<div class="welcome-cta-header"><h3>Join the circle</h3><p>For moms · Kind · Moderated</p></div>' +
       signInErrorCard() + inAppCard() +
-      '<button class="btn btn-google btn-block" data-act="google-signin" id="google-signin">' + googleIcon(20) + "<span>Continue with Google</span></button>" +
+      (isRealMode() && isSigningIn() && !signInError ?
+        '<button class="btn btn-google btn-block" id="google-signin" disabled style="opacity:0.85">' + googleIcon(20) + "<span>Signing you in…</span></button>" :
+        '<button class="btn btn-google btn-block" data-act="google-signin" id="google-signin">' + googleIcon(20) + "<span>Continue with Google</span></button>") +
       // 2026-10-14: real mode is Google-only. The phone path was a demo leftover
       // (fake number + fake code) that dead-ended a real beta mom, and "I already
       // have an account" skipped sign-in altogether. The prototype keeps both.
@@ -1520,6 +1525,12 @@
     var gated = gateOn();
     if (gated && GATE_OPEN.indexOf(r.name) < 0) r = { name: "invite", arg: null };
     else if (!gated && r.name === "invite") r = { name: store.onboarded ? "home" : ((isRealMode() && window.Backend.user) ? "onboard/city" : "welcome"), arg: null };
+    else if (!gated && r.name === "welcome" && isRealMode() && window.Backend && window.Backend.user) {
+      r = { name: store.onboarded ? "home" : "onboard/city", arg: null };
+      if (location.hash === "#welcome" || !location.hash) {
+        try { history.replaceState(null, "", "#" + r.name); } catch (_) { location.hash = "#" + r.name; }
+      }
+    }
     var view = V[r.name] || V.home;
     var out = view(r.arg);
     var screen = $("#screen");
@@ -1797,6 +1808,7 @@
   // Webview refusals get the in-app-browser card; everything else gets a kind,
   // specific message as a toast AND a card that stays put (showSignInFailed).
   function handleSignInError(e, btn) {
+    try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
     if (btn) btn.disabled = false;
     if (!e) return;
     if (isWebviewAuthError(e)) { console.warn("MomSakhi: sign-in blocked in this browser", e); showSignInBlocked(); return; }
@@ -1805,11 +1817,13 @@
   function signInWithGoogle(account, btn) {
     if (window.Backend && window.Backend.isReal) {
       busy(btn);
+      try { sessionStorage.setItem("momsakhi_signing_in", "1"); } catch (_) {}
       // Backend falls back to signInWithRedirect for popup-blocked & co; in that
       // case the page navigates away and the result lands via getRedirectResult.
       window.Backend.signInWithGoogle().then(function(result) {
          if (btn) btn.disabled = false;
          if (!result || result.redirecting || !result.user) return;
+         try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
          return afterGoogleSignIn(result.user);
       }).catch(function(e) { handleSignInError(e, btn); });
       return;
@@ -2757,6 +2771,7 @@
           showcase();
           // Coming back from a signInWithRedirect fallback: finish sign-in here.
           window.Backend.getRedirectResult().then(function (result) {
+            try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
             if (result && result.user) return afterGoogleSignIn(result.user);
           }).catch(function (e) { handleSignInError(e, null); });
           window.Backend.onAuth(function(u) {
@@ -2769,18 +2784,41 @@
             var cached = !!(u && store.memberUid === u.uid);
             if (!u) access = freshAccess();
             if (!u || cached) { syncPosts(); syncReplies(); syncMarks(); }
-            if (!u) { render(); return; }
-            if (!cached) render();  // "Checking your invite…"
+            if (!u) {
+              try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
+              render();
+              return;
+            }
+            try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
+            var curRoute = parseHash().name;
+            if (curRoute !== "welcome" && !cached) render();  // "Checking your invite…"
             accessFor(u).then(function (ok) {
               if (window.Backend.user !== u) return;
               if (!ok) { syncPosts(); syncReplies(); syncMarks(); render(); autoRedeem(); return; }
               if (!cached) { syncPosts(); syncReplies(); syncMarks(); }
               window.Backend.getProfile(u.uid).then(function(p) {
-                if (p) { applyProfile(p); store.onboarded = true; save(); }
+                if (p) {
+                  applyProfile(p);
+                  store.onboarded = true;
+                  save();
+                  var at = parseHash().name;
+                  if (at === "welcome" || !at) {
+                    go("#home");
+                    return;
+                  }
+                } else {
+                  var at2 = parseHash().name;
+                  if (at2 === "welcome" || !at2) {
+                    go("#onboard/city");
+                    return;
+                  }
+                }
                 render();
               }).catch(function (e) {
                 failToast("load your profile", null)(e);
-                render();
+                var at3 = parseHash().name;
+                if (at3 === "welcome" || !at3) go("#onboard/city");
+                else render();
               });
             });
           });
