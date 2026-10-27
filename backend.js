@@ -58,11 +58,9 @@
   };
 
   // Popup failures that mean "this browser can't do popups", not "the mom said no".
-  var REDIRECT_FALLBACK_CODES = [
-    "auth/popup-blocked",
-    "auth/operation-not-supported-in-this-environment",
-    "auth/cancelled-popup-request"
-  ];
+  // 2026-10-27: Removed REDIRECT_FALLBACK_CODES. Cross-origin redirect is dead
+  // on modern mobile browsers due to 3rd-party cookie blocking. Let errors bubble
+  // up to app.js instead so the webview warning card can be shown.
 
   function str(v, fallback) { return (typeof v === "string") ? v : (v == null ? fallback : String(v)); }
   // JSON round-trip drops undefined values (Firestore rejects them) and functions.
@@ -153,18 +151,15 @@
           serverTimestamp = modules[2].serverTimestamp, query = modules[2].query,
           orderBy = modules[2].orderBy, onSnapshot = modules[2].onSnapshot, limit = modules[2].limit;
 
-      // Resolves with the UserCredential (popup) or {redirecting: true} (page is
-      // about to navigate away to Google). Rejects for every other failure.
+      // Resolves with the UserCredential (popup). Rejects for every failure.
+      // 2026-10-27: Removed signInWithRedirect fallback. Cross-origin redirect is
+      // dead on modern mobile browsers due to 3rd-party cookie blocking, causing
+      // silent loops. Instead, let errors bubble up to app.js to show the
+      // in-app browser card or instruct the user to retry/allow popups.
       Backend.signInWithGoogle = function() {
         var provider = new GoogleAuthProvider();
         provider.setCustomParameters({ prompt: "select_account" });
-        return signInWithPopup(auth, provider).catch(function(e) {
-          if (e && REDIRECT_FALLBACK_CODES.indexOf(e.code) >= 0) {
-            console.warn("Popup sign-in unavailable (" + e.code + "); falling back to redirect");
-            return signInWithRedirect(auth, provider).then(function() { return { redirecting: true }; });
-          }
-          throw e;
-        });
+        return signInWithPopup(auth, provider);
       };
 
       // Null when the page wasn't opened by a sign-in redirect.

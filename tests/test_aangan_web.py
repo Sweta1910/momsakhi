@@ -402,11 +402,7 @@ class TestRealModeHardening(unittest.TestCase):
         for field in ("title: str(title", "body: str(body", "meta: str(meta", "hue: str(hue"):
             self.assertIn(field, self.backend)
 
-    def test_redirect_sign_in_fallback(self):
-        for code in ("auth/popup-blocked", "auth/operation-not-supported-in-this-environment",
-                     "auth/cancelled-popup-request"):
-            self.assertIn(code, self.backend)
-        self.assertIn("signInWithRedirect(auth, provider)", self.backend)
+        # Removed signInWithRedirect checks because cross-origin redirect is dead
         self.assertIn("fbGetRedirectResult(auth)", self.backend)
         self.assertIn("Backend.getRedirectResult()", self.app)
 
