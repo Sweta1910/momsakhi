@@ -942,15 +942,20 @@
     var circles = D.circles.map(function (c) {
       return '<a class="card circle-card" href="#circle/' + c.id + '" style="text-decoration:none;color:inherit"><span class="ce">' + c.emoji + "</span><b>" + esc(c.name) + "</b><span>" + circleCount(c) + "</span></a>";
     }).join("");
+    var isLoading = window.Backend && window.Backend.isReal && window.Backend.posts === null;
     var feed = allPosts().map(function (p) { return postCard(p); }).join("");
+    var feedHtml = isLoading
+      ? '<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">Loading posts...</div>'
+      : (feed || '<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">Be the first to share. You\'re not alone.</div>');
+    var countStr = isLoading ? "..." : allPosts().length + " posts";
     return { tab: "home", html:
       '<div class="view">' + homeTop() +
       '<div class="hello"><h2>' + greeting() + ", " + esc(store.profile.nickname) + ' <span aria-hidden="true">🌼</span></h2><p>Here\'s what moms near you are talking about.</p></div>' + installHint() +
       '<div class="section" style="padding:0;margin-top:14px"><div class="section-head" style="padding:0 18px"><h2>Your circles</h2><span class="muted">Swipe →</span></div>' +
       '<div class="circles-row">' + circles + "</div></div>" +
       '<div class="kind-banner"><span class="kb-i">💛</span><div><b>A kind space, always</b><span>Supportive reactions only — no downvotes, no shaming.</span></div></div>' +
-      '<div class="section-head" style="padding:0 18px"><h2>Fresh today</h2><span class="muted">' + allPosts().length + " posts</span></div>" +
-      '<div class="feed">' + (feed || '<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">Be the first to share. You\'re not alone.</div>') + "</div></div>" };
+      '<div class="section-head" style="padding:0 18px"><h2>Fresh today</h2><span class="muted">' + countStr + '</span></div>' +
+      '<div class="feed">' + feedHtml + "</div></div>" };
   };
 
   V.circle = function (id) {
@@ -1851,13 +1856,6 @@
         btn.style.opacity = "0.75";
       }
       try { sessionStorage.setItem("momsakhi_signing_in", "1"); } catch (_) {}
-
-      setTimeout(function() {
-        if (!sessionStorage.getItem("momsakhi_signing_in")) return;
-        store.onboarded = true;
-        save();
-        go("#home");
-      }, 50);
 
       var checkFocus = function() {
         if (sessionStorage.getItem("momsakhi_signing_in")) {
@@ -2790,6 +2788,7 @@
     live.postsDead = false;
     live.postsSig = null;
     if (!B.user || !hasAccess()) { B.posts = []; return; }
+    B.posts = null;
     B._unsubPosts = B.listenPosts("all", function(posts) {
       live.retry = 0;
       var r = parseHash();
@@ -2868,6 +2867,11 @@
             if (u && pendingSignInHandler) {
               var handler = pendingSignInHandler;
               pendingSignInHandler = null;
+              resetReactions();
+              syncModerator(u);
+              syncPosts();
+              syncReplies();
+              syncMarks();
               handler(u);
               return;
             }
