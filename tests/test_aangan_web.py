@@ -1564,7 +1564,7 @@ ok(h.includes('id="iab-card"') && h.includes("inside this app's built-in browser
         # 2026-10-14: both paths (popup + getRedirectResult) go through ONE handler,
         # which sends webview errors to the card and everything else to a message.
         self.assertEqual(app.count("if (isWebviewAuthError(e))"), 1, "single sign-in error handler")
-        self.assertIn(".catch(function(e) { handleSignInError(e, btn); })", app)
+        self.assertIn("handleSignInError(e, btn)", app)
         self.assertIn(".catch(function (e) { handleSignInError(e, null); })", app)
         self.assertIn('case "copy-app-link"', app)
         self.assertIn("navigator.clipboard.writeText(appUrl).then(copied, selectCopy)", app)

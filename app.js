@@ -1835,6 +1835,8 @@
     if (isWebviewAuthError(e)) { console.warn("MomSakhi: sign-in blocked in this browser", e); showSignInBlocked(); return; }
     showSignInFailed(e, btn);
   }
+  var pendingSignInHandler = null;
+
   function signInWithGoogle(account, btn) {
     if (window.Backend && window.Backend.isReal) {
       // 2026-10-27: Do NOT set btn.disabled = true here! Setting disabled destroys
@@ -1846,7 +1848,33 @@
         btn.style.opacity = "0.75";
       }
       try { sessionStorage.setItem("momsakhi_signing_in", "1"); } catch (_) {}
+      
+      var isResolved = false;
+      var safetyTimeout = setTimeout(function() {
+        if (isResolved) return;
+        isResolved = true;
+        pendingSignInHandler = null;
+        if (window.Backend.user) {
+          afterGoogleSignIn(window.Backend.user);
+        } else {
+          handleSignInError(new Error("Sign-in timed out. Please try again."), btn);
+        }
+      }, 15000);
+
+      pendingSignInHandler = function(u) {
+        if (isResolved) return;
+        isResolved = true;
+        clearTimeout(safetyTimeout);
+        pendingSignInHandler = null;
+        try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
+        afterGoogleSignIn(u);
+      };
+
       window.Backend.signInWithGoogle().then(function(result) {
+         if (isResolved) return;
+         isResolved = true;
+         clearTimeout(safetyTimeout);
+         pendingSignInHandler = null;
          if (!result || result.redirecting || !result.user) {
            if (btn) {
              btn.style.pointerEvents = "";
@@ -1856,7 +1884,13 @@
          }
          try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
          return afterGoogleSignIn(result.user);
-      }).catch(function(e) { handleSignInError(e, btn); });
+      }).catch(function(e) {
+         if (isResolved) return;
+         isResolved = true;
+         clearTimeout(safetyTimeout);
+         pendingSignInHandler = null;
+         handleSignInError(e, btn); 
+      });
       return;
     }
     if (!account) {
@@ -2811,6 +2845,12 @@
           }).catch(function (e) { handleSignInError(e, null); });
           window.Backend.onAuth(function(u) {
             window.Backend.user = u;
+            if (u && pendingSignInHandler) {
+              var handler = pendingSignInHandler;
+              pendingSignInHandler = null;
+              handler(u);
+              return;
+            }
             resetReactions();
             syncModerator(u);
             // Open beta (2026-10-14): accessFor() grants at once; kept so the
