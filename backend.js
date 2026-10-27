@@ -157,6 +157,7 @@
       // about to navigate away to Google). Rejects for every other failure.
       Backend.signInWithGoogle = function() {
         var provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
         return signInWithPopup(auth, provider).catch(function(e) {
           if (e && REDIRECT_FALLBACK_CODES.indexOf(e.code) >= 0) {
             console.warn("Popup sign-in unavailable (" + e.code + "); falling back to redirect");

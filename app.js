@@ -1809,19 +1809,33 @@
   // specific message as a toast AND a card that stays put (showSignInFailed).
   function handleSignInError(e, btn) {
     try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
-    if (btn) btn.disabled = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.style.pointerEvents = "";
+      btn.style.opacity = "";
+    }
     if (!e) return;
     if (isWebviewAuthError(e)) { console.warn("MomSakhi: sign-in blocked in this browser", e); showSignInBlocked(); return; }
     showSignInFailed(e, btn);
   }
   function signInWithGoogle(account, btn) {
     if (window.Backend && window.Backend.isReal) {
-      busy(btn);
+      // 2026-10-27: Do NOT set btn.disabled = true here! Setting disabled destroys
+      // the transient user activation in Chrome and Safari, immediately triggering
+      // auth/popup-blocked and forcing a cross-origin redirect fallback that fails
+      // under 3rd-party cookie blocking. Pointer-events prevents double-clicks cleanly.
+      if (btn) {
+        btn.style.pointerEvents = "none";
+        btn.style.opacity = "0.75";
+      }
       try { sessionStorage.setItem("momsakhi_signing_in", "1"); } catch (_) {}
       // Backend falls back to signInWithRedirect for popup-blocked & co; in that
       // case the page navigates away and the result lands via getRedirectResult.
       window.Backend.signInWithGoogle().then(function(result) {
-         if (btn) btn.disabled = false;
+         if (btn) {
+           btn.style.pointerEvents = "";
+           btn.style.opacity = "";
+         }
          if (!result || result.redirecting || !result.user) return;
          try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
          return afterGoogleSignIn(result.user);
@@ -2770,9 +2784,13 @@
           }
           showcase();
           // Coming back from a signInWithRedirect fallback: finish sign-in here.
+          var wasRedirectAttempt = isSigningIn();
           window.Backend.getRedirectResult().then(function (result) {
             try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
             if (result && result.user) return afterGoogleSignIn(result.user);
+            if (wasRedirectAttempt && !window.Backend.user) {
+              toast("Sign-in session didn't persist. Tap Continue with Google to sign in directly.");
+            }
           }).catch(function (e) { handleSignInError(e, null); });
           window.Backend.onAuth(function(u) {
             window.Backend.user = u;
