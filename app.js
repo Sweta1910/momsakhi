@@ -1813,6 +1813,10 @@
       btn.disabled = false;
       btn.style.pointerEvents = "";
       btn.style.opacity = "";
+      var span = btn.querySelector("span");
+      if (span && btn.dataset.origText) {
+        span.textContent = btn.dataset.origText;
+      }
     }
     if (!e) return;
     if (isWebviewAuthError(e)) { console.warn("MomSakhi: sign-in blocked in this browser", e); showSignInBlocked(); return; }
@@ -1827,16 +1831,25 @@
       if (btn) {
         btn.style.pointerEvents = "none";
         btn.style.opacity = "0.75";
+        var span = btn.querySelector("span");
+        if (span) {
+          btn.dataset.origText = span.textContent;
+          span.textContent = "Signing you in…";
+        }
       }
       try { sessionStorage.setItem("momsakhi_signing_in", "1"); } catch (_) {}
-      // Backend falls back to signInWithRedirect for popup-blocked & co; in that
-      // case the page navigates away and the result lands via getRedirectResult.
       window.Backend.signInWithGoogle().then(function(result) {
-         if (btn) {
-           btn.style.pointerEvents = "";
-           btn.style.opacity = "";
+         if (!result || result.redirecting || !result.user) {
+           if (btn) {
+             btn.style.pointerEvents = "";
+             btn.style.opacity = "";
+             var span = btn.querySelector("span");
+             if (span && btn.dataset.origText) {
+               span.textContent = btn.dataset.origText;
+             }
+           }
+           return;
          }
-         if (!result || result.redirecting || !result.user) return;
          try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
          return afterGoogleSignIn(result.user);
       }).catch(function(e) { handleSignInError(e, btn); });
