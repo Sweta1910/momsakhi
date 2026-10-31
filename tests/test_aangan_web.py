@@ -891,7 +891,7 @@ function boot(backend, seed) {
   return w.AANGAN;
 }
 function ok(c, msg) { if (!c) throw new Error(msg); }
-const seed = { onboarded: true, city: 'Pune', profile: { nickname: 'test', fullName: '', email: '', anonDefault: false, stages: ['Toddler'], langs: ['Hindi'] } };
+const seed = { onboarded: true, city: 'Pune', profile: { nickname: 'test', fullName: '', email: '', anonByDefault: false, stages: ['Toddler'], langs: ['Hindi'] } };
 (async () => {
   for (const real of [false, true]) {
     const tag = real ? 'real: ' : 'demo: ';
@@ -1896,7 +1896,7 @@ console.log('OK');
     def test_rules_anon_has_no_uid_and_private_author_record(self):
         posts = self.rules[self.rules.index("match /posts/{postId}"):self.rules.index("match /postAuthors/{postId}")]
         self.assertEqual(posts.count("!('uid' in request.resource.data)"), 2)  # posts + replies
-        self.assertIn("keys().hasOnly(['uid', 'author', 'anon', 'circle', 'title', 'body', 'meta', 'hue', 'createdAt', 'replyCount', 'intent'])", posts)
+        self.assertIn("keys().hasOnly(['uid', 'author', 'anon', 'circle', 'title', 'body', 'meta', 'hue', 'createdAt', 'replyCount', 'intent', 'photo'])", posts)
         self.assertIn("keys().hasOnly(['uid', 'author', 'anon', 'body', 'hue', 'createdAt'])", posts)
         self.assertIn("getAfter(/databases/$(database)/documents/postAuthors/$(postId)).data.uid == request.auth.uid", posts)
         self.assertIn("getAfter(/databases/$(database)/documents/postAuthors/$(postId)/replies/$(replyId)).data.uid == request.auth.uid", posts)
@@ -2394,6 +2394,99 @@ const h = A.V.home().html;
 ok(h.includes('Fresh today') && h.includes('⭐ Saved') && h.includes('data-act="home-seg"'), 'home view saved tab: ' + h);
 ok(h.includes('data-act="toggle-save"'), 'post card save button: ' + h);
 
+console.log('OK');
+""" % WEB_DIR
+        r = subprocess.run([node, "-e", src], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("OK", r.stdout)
+
+
+class TestPostTypesTipsKidCirclesAnon(unittest.TestCase):
+    """2026-10-31: Question / Vent / Experience post types (stored as intent
+    advice / vent / experience), the signed-in "Moms' tips" feed, a share button
+    on Experience posts, kid circles first, and anonymous OFF by default."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app, cls.rules, cls.d = _read("app.js"), _read("firestore.rules"), load_data()
+
+    def test_rules_accept_experience_and_posts_stay_signed_in(self):
+        self.assertIn("in ['vent', 'advice', 'experience', null]", self.rules)
+        posts = self.rules.split("match /posts/{postId}")[1]
+        self.assertIn("allow read: if isMember();", posts.split("allow create")[0])
+        self.assertIn("return request.auth != null;", self.rules.split("function isMember()")[1][:80])
+
+    def test_attached_photo_is_saved_on_the_post(self):
+        # The bug: the photo only lived on the optimistic local copy and vanished.
+        self.assertIn("askDraft.intent, askDraft.photo).then(", self.app)
+        self.assertIn("photo.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$')", self.rules)
+        self.assertIn("photo.size() <= 300000", self.rules)
+        self.assertIn("var PHOTO_MAX = 300000;", self.app)
+        node = _node()
+        if not node:
+            self.skipTest("node not installed")
+        src = r"""
+const fs = require('fs'), vm = require('vm'); const w = {console}; w.window = w;
+vm.runInContext(fs.readFileSync(%r, 'utf8'), vm.createContext(w));
+const pp = (ph) => w.Backend._postPayload('u', 'n', false, 'c', 't', 'b', 'm', 'h', 'experience', 1, ph);
+if (pp('data:image/jpeg;base64,AAAA').photo !== 'data:image/jpeg;base64,AAAA') throw new Error('photo dropped');
+if ('photo' in pp(null) || 'photo' in pp('javascript:alert(1)')) throw new Error('bad photo kept');
+console.log('OK');
+""" % os.path.join(WEB_DIR, "backend.js")
+        r = subprocess.run([node, "-e", src], capture_output=True, text=True)
+        self.assertIn("OK", r.stdout, r.stdout + r.stderr)
+
+    def test_kid_circles_first_and_old_circles_kept(self):
+        ids = [c["id"] for c in self.d["circles"]]
+        self.assertEqual(ids[:6], ["newborn", "toddlers", "schools", "kids-food", "sleep", "kids-health"])
+        for old in ("new-us", "h4", "parents", "pregnancy", "working", "food", "me-time", "postpartum-feelings"):
+            self.assertIn(old, ids[6:])
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_rendering(self):
+        node = _node()
+        if not node:
+            self.skipTest("node not installed")
+        src = r"""
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const webDir = %r;
+const dataJs = fs.readFileSync(path.join(webDir, 'data.js'), 'utf8');
+const appJs = fs.readFileSync(path.join(webDir, 'app.js'), 'utf8');
+function boot(seed, backend) {
+  const ls = { store: {}, getItem(k) { return this.store[k] || null; }, setItem(k, v) { this.store[k] = v; }, removeItem(k) { delete this.store[k]; } };
+  if (seed) ls.store['aangan.demo.v1'] = JSON.stringify(seed);
+  const w = { location: { hash: '#home', search: '', hostname: 'localhost' }, localStorage: ls,
+    document: { addEventListener() {}, querySelector() { return null; }, getElementById() { return null; }, body: { setAttribute() {} } },
+    Backend: backend || { isReal: false }, console: console, setTimeout: setTimeout, clearTimeout: clearTimeout };
+  w.window = w;
+  vm.runInContext(dataJs, vm.createContext(w)); vm.runInContext(appJs, w);
+  return w.AANGAN;
+}
+function ok(c, m) { if (!c) throw new Error(m); }
+const P = (id, intent, anon) => Object.assign({ id: id, title: 'T ' + id, body: 'b', meta: 'Mom', hue: 'teal', anon: !!anon, author: anon ? null : 'Asha', circle: 'sleep', replyCount: 0 }, intent ? { intent: intent } : {});
+const posts = [P('q1', 'advice'), P('v1', 'vent'), P('x1', 'experience', true), P('u1', null)];
+const A = boot({ onboarded: true, city: 'Pune' }, { isReal: true, posts: posts, user: { uid: 'me' } });
+ok(['question', 'vent', 'experience', 'question'].join() === posts.map(A.postType).join(), 'untyped posts must read as Questions');
+const h = A.V.home().html;
+ok(h.includes('Question</span>') && h.includes('Just venting') && h.includes('Experience</span>'), 'type tags: ' + h);
+ok(h.includes('data-act="home-type"') && h.includes('data-v="tips"'), 'filter + tips segment');
+ok((h.match(/data-act="share-post"/g) || []).length === 1 && h.includes('data-act="share-post" data-id="x1"'), 'share only on Experience');
+const t = A.V.tips().html;
+ok(t.includes('post-x1') && !t.includes('post-q1') && !t.includes('post-v1') && !t.includes('post-u1'), 'tips = Experience only');
+// Circles row: kid circles first.
+ok(h.indexOf('Newborn &amp; baby') < h.indexOf('New to the US'), 'kid circles not first');
+// Anonymous OFF by default for posts and replies, opt-in per post / reply.
+const F = boot({ onboarded: true, city: 'Pune' });
+const ask = F.V.ask().html;
+ok(ask.includes('Posting as <b>') && !ask.includes('Posting as <b>Anonymous mom'), 'ask must start named: ' + ask);
+ok(ask.includes('data-val="experience"') && ask.includes('data-val="advice"') && ask.includes('data-val="vent"'), 'type picker');
+const q = F.V.q('p1').html;
+ok(q.includes('Reply as ') && !q.includes('Reply anonymously<'), 'reply must start named');
+// An older profile saved with the old default (anonDefault: true) also starts named.
+const O = boot({ onboarded: true, city: 'Pune', profile: { nickname: 'old', anonDefault: true, stages: [], langs: [] } });
+ok(!O.V.ask().html.includes('Posting as <b>Anonymous mom'), 'old anonDefault must not carry over');
+// Existing anonymous posts still render as Anonymous mom.
+ok(t.includes('Anonymous mom'), 'existing anon post lost anonymity');
 console.log('OK');
 """ % WEB_DIR
         r = subprocess.run([node, "-e", src], capture_output=True, text=True)

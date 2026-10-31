@@ -30,7 +30,7 @@
       // Free-text city, optional ("" = not set). Only the meetup features (Meetups
       // tab + Nearby moms) need it; everything else works without. See cityGate().
       city: "",
-      profile: { nickname: D.me.nickname, fullName: "", email: "", anonDefault: true, stages: ["Toddler"], langs: ["English", "Hindi"] },
+      profile: { nickname: D.me.nickname, fullName: "", email: "", anonByDefault: false, stages: ["Toddler"], langs: ["English", "Hindi"] },
       verify: { phone: false, google: false },
       authMethod: null,
       nearbyOn: false,
@@ -227,6 +227,11 @@
     var rest = Object.assign({}, p); delete rest.city;
     store.profile = Object.assign(store.profile || {}, rest);
   }
+  // 2026-10-31: "Post anonymously" starts OFF. The setting moved from anonDefault
+  // (born true, so saved as true on every older profile) to anonByDefault (born
+  // false); the old key is simply ignored. The same setting seeds the reply box, so
+  // replies also start named, with a per-reply switch. Anonymous posts and replies
+  // already shared stay anonymous (anon is stored on each doc).
   function profileDoc() { return Object.assign({}, store.profile, { city: store.city }); }
   // Saves locally always. In real mode it also writes Firestore, but only once
   // she has finished onboarding: a city-only profile doc written mid-onboarding
@@ -333,6 +338,7 @@
     back: '<path d="M15 5l-7 7 7 7"/>',
     close: '<path d="M6 6l12 12M18 6 6 18"/>',
     more: '<circle cx="5.5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
+    share: '<circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="m8.2 10.8 7.6-4.1M8.2 13.2l7.6 4.1"/>',
     send: '<path d="M4.5 12 20 4.5 14 20l-2.8-6.2z"/><path d="m11.2 13.8 3.3-3.3"/>',
     chat: '<path d="M20.5 12a8.5 8.5 0 0 1-12.3 7.6L3.5 20.5l1-4.4A8.5 8.5 0 1 1 20.5 12z"/>',
     shield: '<path d="M12 3 4.5 6v5.5c0 4.7 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.8 7.5-9.5V6z"/><path d="m9 12 2 2 4-4"/>',
@@ -372,6 +378,7 @@
   function openPhotoModal(url) {
     openSheet('<div style="text-align:center;padding:8px 0;"><img src="' + url + '" alt="Expanded photo" style="max-width:100%;max-height:75vh;border-radius:12px;object-fit:contain;display:block;margin:0 auto;"><button class="btn btn-ghost btn-block" data-act="sheet-close" style="margin-top:14px">Close</button></div>');
   }
+  var PHOTO_MAX = 300000;
   function handlePhotoSelect(file) {
     if (!file || !file.type.match(/^image\//)) return;
     var reader = new FileReader();
@@ -392,10 +399,18 @@
             height = maxDim;
           }
         }
-        canvas.width = width;
-        canvas.height = height;
-        ctx.drawImage(img, 0, 0, width, height);
-        var dataUrl = canvas.toDataURL("image/jpeg", 0.78);
+        // 2026-10-31: the photo is saved ON the post doc (no Storage bucket), so
+        // shrink until it fits PHOTO_MAX; firestore.rules caps it at the same size.
+        var dataUrl, q = 0.78;
+        for (var tries = 0; tries < 8; tries++) {
+          canvas.width = width;
+          canvas.height = height;
+          ctx.drawImage(img, 0, 0, width, height);
+          dataUrl = canvas.toDataURL("image/jpeg", q);
+          if (dataUrl.length <= PHOTO_MAX) break;
+          width = Math.round(width * 0.8); height = Math.round(height * 0.8); q = Math.max(0.5, q - 0.06);
+        }
+        if (dataUrl.length > PHOTO_MAX) { toast("That photo is too big, please try another"); return; }
         askDraft.photo = dataUrl;
         rerender();
       };
@@ -697,11 +712,13 @@
       '<div class="post-tagrow" style="display:flex;gap:6px;margin-bottom:8px">' +
       (opts.full || !c ? "" : '<a class="tag" style="text-decoration:none" href="#circle/' + c.id + '">' + c.emoji + " " + esc(c.name) + "</a>") +
       (p.intent === "vent" ? '<span class="tag marigold">\ud83e\udec2 Just venting</span>' : "") +
-      (p.intent === "advice" ? '<span class="tag teal">\ud83d\udcad Wants advice</span>' : "") +
+      (p.intent === "advice" ? '<span class="tag teal">\u2753 Question</span>' : "") +
+      (p.intent === "experience" ? '<span class="tag plum">\ud83c\udf31 Experience</span>' : "") +
+      (p.intent === "experience" ? '<button class="icon-btn share-btn" data-act="share-post" data-id="' + p.id + '" aria-label="Share this tip" style="margin-left:auto;width:30px;height:30px;padding:5px;box-shadow:none;background:transparent">' + icon("share") + "</button>" : "") +
       '</div>' +
       "<h3>" + esc(p.title) + "</h3>" +
       (p.body ? '<p class="body ' + (opts.full ? "" : "clamp") + '">' + esc(p.body) + "</p>" : "") +
-      (p.photo ? '<div class="post-photo-wrap" style="margin-top:10px;border-radius:12px;overflow:hidden;cursor:pointer;" data-act="expand-photo" data-url="' + p.photo + '"><img src="' + p.photo + '" alt="Attached photo" class="post-photo" style="width:100%;max-height:420px;object-fit:cover;display:block;border-radius:12px;"></div>' : "") +
+      (p.photo ? '<div class="post-photo-wrap" style="margin-top:10px;border-radius:12px;overflow:hidden;cursor:pointer;" data-act="expand-photo" data-url="' + esc(p.photo) + '"><img src="' + esc(p.photo) + '" alt="Attached photo" class="post-photo" style="width:100%;max-height:420px;object-fit:cover;display:block;border-radius:12px;"></div>' : "") +
       '<div class="post-foot">' + reactionBar(p.id, p.reactions || {}) +
       (opts.full ? "" : '<span class="replies-count">' + icon("chat") + count + "</span>") +
       "</div></article>";
@@ -930,7 +947,7 @@
       '<div class="field"><label for="nick">Pick a nickname</label>' +
       '<input class="input" id="nick" maxlength="20" value="' + esc(p.nickname) + '" autocomplete="off" data-input="nick">' +
       '<p class="hint">No need for your real name — most moms here don\'t use it.</p></div>' +
-      '<div class="card toggle-row" style="margin-top:16px"><div class="grow"><b>Post anonymously by default</b><span>You can switch it per post</span></div>' + switchEl(p.anonDefault, "toggle-anon-default", "Post anonymously by default") + "</div>" +
+      '<div class="card toggle-row" style="margin-top:16px"><div class="grow"><b>Post anonymously by default</b><span>You can switch it per post</span></div>' + switchEl(p.anonByDefault, "toggle-anon-default", "Post anonymously by default") + "</div>" +
       '<div class="field"><span class="label">Your kids\' stages</span><div class="chips">' + stageChips + "</div></div>" +
       '<div class="field"><span class="label">Languages you speak</span><div class="chips">' + langChips + "</div></div>" +
       '<div class="ob-foot"><button class="btn btn-primary btn-block" data-act="go" data-to="#onboard/verify" id="about-continue"' + (p.nickname.trim() ? "" : " disabled") + ">Continue</button></div>" +
@@ -1026,7 +1043,12 @@
       '<button class="icon-btn" data-act="install-dismiss" id="install-dismiss" aria-label="Dismiss">✕</button></div>';
   }
 
-  var homeSeg = "all";
+  // Post types (2026-10-31): intent "advice" = Question (untyped posts count as
+  // Questions too), "vent" = Vent, "experience" = Experience. Experience posts
+  // are the "Moms' tips" feed (#tips); like every post, signed-in moms only.
+  var homeSeg = "all", homeType = "all";
+  function postType(p) { return p.intent === "vent" || p.intent === "experience" ? p.intent : "question"; }
+  V.tips = function () { homeSeg = "tips"; return V.home(); };
   V.home = function () {
     var circles = D.circles.map(function (c) {
       return '<a class="card circle-card" href="#circle/' + c.id + '" style="text-decoration:none;color:inherit"><span class="ce">' + c.emoji + "</span><b>" + esc(c.name) + "</b><span>" + circleCount(c) + "</span></a>";
@@ -1034,15 +1056,21 @@
     var isLoading = window.Backend && window.Backend.isReal && window.Backend.posts === null;
     var all = allPosts();
     var savedCount = Object.keys(store.saved || {}).filter(function (k) { return store.saved[k]; }).length;
-    var feedPosts = homeSeg === "saved" ? all.filter(function (p) { return isSaved(p.id); }) : all;
+    var feedPosts = homeSeg === "saved" ? all.filter(function (p) { return isSaved(p.id); })
+      : homeSeg === "tips" ? all.filter(function (p) { return p.intent === "experience"; })
+      : all.filter(function (p) { return homeType === "all" || postType(p) === homeType; });
     var feed = feedPosts.map(function (p) { return postCard(p); }).join("");
     var feedHtml = isLoading
       ? '<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">Loading posts...</div>'
       : (feed || (homeSeg === "saved"
           ? emptyState("⭐", "No saved posts yet", "Tap the bookmark icon on any post to save it here for later.")
+          : homeSeg === "tips" ? emptyState("🌱", "No tips yet", "Been through something? Share what worked for you as an Experience post.")
           : '<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">Be the first to share. You\'re not alone.</div>'));
     var countStr = isLoading ? "..." : feedPosts.length + " posts";
-    var segs = '<div class="seg" role="tablist" style="margin:10px 18px 0;max-width:100%;"><button data-act="home-seg" data-v="all" aria-pressed="' + (homeSeg === "all") + '">Fresh today</button><button data-act="home-seg" data-v="saved" aria-pressed="' + (homeSeg === "saved") + '">⭐ Saved (' + savedCount + ')</button></div>';
+    var segs = '<div class="seg" role="tablist" style="margin:10px 18px 0;max-width:100%;"><button data-act="home-seg" data-v="all" aria-pressed="' + (homeSeg === "all") + '">Fresh today</button><button data-act="home-seg" data-v="tips" aria-pressed="' + (homeSeg === "tips") + '">🌱 Moms\' tips</button><button data-act="home-seg" data-v="saved" aria-pressed="' + (homeSeg === "saved") + '">⭐ Saved (' + savedCount + ')</button></div>' +
+      (homeSeg === "all" ? '<div class="chips" id="type-filter" style="margin:10px 18px 0">' + [["all", "All"], ["question", "❓ Questions"], ["vent", "🫂 Vents"]].map(function (t) {
+        return '<button class="chip" data-act="home-type" data-v="' + t[0] + '" aria-pressed="' + (homeType === t[0]) + '">' + t[1] + "</button>";
+      }).join("") + "</div>" : "");
     return { tab: "home", html:
       '<div class="view">' + homeTop() +
       '<div class="hello"><h2>' + greeting() + ", " + esc(store.profile.nickname) + ' <span aria-hidden="true">🌼</span></h2><p>Here\'s what moms near you are talking about.</p></div>' + installHint() +
@@ -1050,7 +1078,7 @@
       '<div class="circles-row">' + circles + "</div></div>" +
       '<div class="kind-banner"><span class="kb-i">💛</span><div><b>A kind space, always</b><span>Supportive reactions only — no downvotes, no shaming.</span></div></div>' +
       segs +
-      '<div class="section-head" style="padding:0 18px;margin-top:10px;"><h2>' + (homeSeg === "saved" ? "Saved posts" : "Fresh today") + '</h2><span class="muted">' + countStr + '</span></div>' +
+      '<div class="section-head" style="padding:0 18px;margin-top:10px;"><h2>' + (homeSeg === "saved" ? "Saved posts" : homeSeg === "tips" ? "Moms' tips" : "Fresh today") + '</h2><span class="muted">' + countStr + '</span></div>' +
       '<div class="feed">' + feedHtml + "</div></div>" };
   };
 
@@ -1070,7 +1098,7 @@
   var askDraft = { circle: null, title: "", body: "", anon: null, nudge: null, intent: null, photo: null };
   V.ask = function (circleId) {
     if (circleId && circle(circleId)) askDraft.circle = circleId;
-    if (askDraft.anon === null) askDraft.anon = store.profile.anonDefault;
+    if (askDraft.anon === null) askDraft.anon = store.profile.anonByDefault;
     var picks = D.circles.map(function (c) {
       return '<button class="chip" data-act="ask-circle" data-id="' + c.id + '" aria-pressed="' + (askDraft.circle === c.id) + '">' + c.emoji + " " + esc(c.name) + "</button>";
     }).join("");
@@ -1087,13 +1115,15 @@
       '</div>' +
       (askDraft.photo ? '<div class="photo-preview" style="position:relative;display:inline-block;margin-top:10px;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.12);"><img src="' + askDraft.photo + '" alt="Upload preview" style="max-height:160px;max-width:100%;display:block;border-radius:10px;"><button type="button" class="icon-btn remove-photo-btn" data-act="ask-remove-photo" aria-label="Remove photo" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.65);color:#fff;width:28px;height:28px;border-radius:50%;padding:4px;border:none;cursor:pointer;">' + icon("close") + '</button></div>' : '') +
       '<p class="demo-link">✨ <button class="link" data-act="ask-demo" id="kindness-demo">See the kindness check in action</button></p></div>' +
-      '<div style="margin-top:12px;margin-bottom:12px"><label style="font-weight:600;font-size:14px;color:var(--ink)">Tag your post <span class="tiny muted" style="font-weight:normal">(optional)</span></label><div class="chips" style="margin-top:8px">' +
-      '<button class="chip" data-act="ask-intent" data-val="vent" aria-pressed="' + (askDraft.intent === 'vent') + '">I just need to vent</button>' +
-      '<button class="chip" data-act="ask-intent" data-val="advice" aria-pressed="' + (askDraft.intent === 'advice') + '">I\'d like advice</button></div></div>' +
+      '<div style="margin-top:12px;margin-bottom:12px"><label style="font-weight:600;font-size:14px;color:var(--ink)">What kind of post? <span class="tiny muted" style="font-weight:normal">(optional)</span></label><div class="chips" style="margin-top:8px">' +
+      '<button class="chip" data-act="ask-intent" data-val="advice" aria-pressed="' + (askDraft.intent === 'advice') + '">❓ Question</button>' +
+      '<button class="chip" data-act="ask-intent" data-val="vent" aria-pressed="' + (askDraft.intent === 'vent') + '">🫂 Vent</button>' +
+      '<button class="chip" data-act="ask-intent" data-val="experience" aria-pressed="' + (askDraft.intent === 'experience') + '">🌱 Experience</button></div>' +
+      (askDraft.intent === "experience" ? '<p class="tiny" style="margin-top:6px">Share what worked for you. It also shows in Moms\' tips, and moms can share a link to it.</p>' : "") + "</div>" +
       '<div class="card toggle-row" style="margin-top:16px"><div class="grow"><b>Post anonymously</b><span>' + (askDraft.anon ? 'Hidden from other moms. ' + esc(BRAND.name) + '\'s moderators can see who posted, for safety.' : "Shown as " + esc(store.profile.nickname)) + "</span></div>" + switchEl(askDraft.anon, "ask-anon", "Post anonymously") + "</div>" +
       '<div class="anon-preview">' + avatar(askDraft.anon ? null : store.profile.nickname, D.me.hue, "sm") + "<span>Posting as <b>" + (askDraft.anon ? "Anonymous mom" : esc(store.profile.nickname)) + "</b></span></div>" +
       '<div id="ask-nudge-slot">' + (askDraft.nudge ? nudgeHtml(askDraft.body || askDraft.title, askDraft.nudge, "ask") : "") + "</div>" +
-      '<div style="margin-top:18px"><button class="btn btn-primary btn-block" data-act="ask-post" id="ask-post"' + (canPost ? "" : " disabled") + ">Post question</button>" +
+      '<div style="margin-top:18px"><button class="btn btn-primary btn-block" data-act="ask-post" id="ask-post"' + (canPost ? "" : " disabled") + ">" + (askDraft.intent === "experience" ? "Share experience" : askDraft.intent === "vent" ? "Post" : "Post question") + "</button>" +
       '<p class="tiny ask-hint" id="ask-hint" style="text-align:center;margin-top:6px;' + (canPost ? "display:none;" : "") + '">Add a title (at least 5 characters) to post</p></div>' +
       '<p class="tiny" style="text-align:center;margin-top:10px;font-weight:600">Moms supporting moms — not a replacement for your doctor or therapist.</p>' +
       '<p class="tiny" style="text-align:center;margin-top:4px">Be kind. Every mom here is doing her best. 💛</p>' +
@@ -1104,7 +1134,7 @@
   V.q = function (id) {
     var p = post(id);
     if (!p) return V.home();
-    if (replyDraft.pid !== id) replyDraft = { pid: id, text: "", anon: store.profile.anonDefault, nudge: null };
+    if (replyDraft.pid !== id) replyDraft = { pid: id, text: "", anon: store.profile.anonByDefault, nudge: null };
     var c = p.circle ? circle(p.circle) : null;
     var ans = answersFor(p).slice().sort(function (a, b) { return (b.expert ? 1 : 0) - (a.expert ? 1 : 0); });
     var list = ans.map(function (a) {
@@ -1438,7 +1468,7 @@
         "<p>Signing in with Google only tells us you have a Google account \u2014 we don\u2019t check identity or gender. " + name + " is a moderated community, so please keep it kind and report anything that feels off.</p>") +
       privacySection("🗂️", "What we store",
         "<p>When you sign in with Google, we receive your <b>name, email address and profile photo</b> from Google. We keep your name and email on your private profile so we know the account is yours.</p>" +
-        "<p>We also store what you add: your nickname, the stages and languages you pick, your <b>city if you add it</b>, your <b>posts and replies</b> (and whether each one is anonymous), the <b>reactions</b> you give, any posts you report, and <b>feedback notes</b> you send (with the page you sent them from and your browser type).</p>" +
+        "<p>We also store what you add: your nickname, the stages and languages you pick, your <b>city if you add it</b>, your <b>posts and replies</b> (any photo you attach to a post, and whether each one is anonymous), the <b>reactions</b> you give, any posts you report, and <b>feedback notes</b> you send (with the page you sent them from and your browser type).</p>" +
         "<p>When you join with an invite code, we also note <b>which code you used and when you joined</b>, so moderators can manage beta invites.</p>" +
         "<p>All of this lives in <b>Google Firebase</b> (Firebase Authentication and Cloud Firestore). A few settings are also kept in your browser on this device.</p>") +
       privacySection("👀", "What other moms see",
@@ -1488,7 +1518,7 @@
       (real ? "</div>" :
       '<div class="stats"><div><b>' + (2 + store.posts.length) + "</b><span>Questions</span></div><div><b>" + (7 + Object.keys(store.answers).reduce(function (n, k) { return n + store.answers[k].length; }, 0)) + "</b><span>Replies</span></div><div><b>" + (31 + Object.keys(store.reacted).length) + "</b><span>Hugs given</span></div></div></div>") +
       '<div class="settings-group"><h3>Privacy</h3><div class="card">' +
-      '<div class="toggle-row"><div class="grow"><b>Post anonymously by default</b><span>Switch per post anytime</span></div>' + switchEl(p.anonDefault, "toggle-anon-default", "Post anonymously by default", ' id="set-anon"') + "</div>" +
+      '<div class="toggle-row"><div class="grow"><b>Post anonymously by default</b><span>Switch per post anytime</span></div>' + switchEl(p.anonByDefault, "toggle-anon-default", "Post anonymously by default", ' id="set-anon"') + "</div>" +
       (real ? "" : '<div class="toggle-row"><div class="grow"><b>Show me to moms near me</b><span>Neighbourhood only · never exact location</span></div>' + switchEl(store.nearbyOn, "nearby-toggle", "Show me to moms near me", ' id="set-nearby"') + "</div>") + "</div></div>" +
       (real ? "" : '<div class="settings-group"><h3>Who can message me</h3><div class="card" role="radiogroup">' + policy + "</div></div>") +
       '<div class="settings-group"><h3>Safety</h3><div class="card">' +
@@ -2262,8 +2292,8 @@
         save(); el.setAttribute("aria-pressed", i < 0); break;
       }
       case "toggle-anon-default":
-        store.profile.anonDefault = !store.profile.anonDefault; askDraft.anon = null; save();
-        el.setAttribute("aria-checked", store.profile.anonDefault); break;
+        store.profile.anonByDefault = !store.profile.anonByDefault; askDraft.anon = null; save();
+        el.setAttribute("aria-checked", store.profile.anonByDefault); break;
       case "verify-phone":
         if (isRealMode()) { signInWithGoogle(null, el); break; }
         store.authMethod = "phone";
@@ -2321,7 +2351,7 @@
           if (!window.Backend.user) { toast("Please sign in to post"); go("#welcome"); break; }
           if (askDraft.saving) break;
           askDraft.saving = true; busy(el);
-          window.Backend.addPost(window.Backend.user.uid, authorName, isAnon, cId, askDraft.title.trim(), askDraft.body.trim(), meta, D.me.hue, askDraft.intent).then(function(docRef) {
+          window.Backend.addPost(window.Backend.user.uid, authorName, isAnon, cId, askDraft.title.trim(), askDraft.body.trim(), meta, D.me.hue, askDraft.intent, askDraft.photo).then(function(docRef) {
             store.myAnon = store.myAnon || {};
             if (isAnon) { store.myAnon[docRef.id] = true; save(); }
             if (window.Backend.posts) {
@@ -2698,6 +2728,18 @@
         break;
       }
       case "home-seg": homeSeg = el.getAttribute("data-v"); rerender(); break;
+      case "home-type": homeType = el.getAttribute("data-v"); rerender(); break;
+      case "share-post": {
+        // Web Share where there is one; else copy the link; else WhatsApp. Only a
+        // link and a generic line go out: no title, body or name.
+        var shareUrl = appLink(location) + "#q/" + el.getAttribute("data-id");
+        var shareText = "A mom shared what worked for her on " + BRAND.name + " 🌱";
+        var wa = function () { window.open("https://wa.me/?text=" + encodeURIComponent(shareText + " " + shareUrl), "_blank"); };
+        if (navigator.share) navigator.share({ title: BRAND.name, text: shareText, url: shareUrl }).catch(function () { /* closed */ });
+        else if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(shareUrl).then(function () { toast("Link copied ✓"); }, wa);
+        else wa();
+        break;
+      }
       case "create-meetup": openCreateMeetupSheet(); break;
       case "save-meetup": {
         var t = $("#new-meetup-title"), d = $("#new-meetup-date"), tm = $("#new-meetup-time"), p = $("#new-meetup-place"), c = $("#new-meetup-circle"), ds = $("#new-meetup-desc");
@@ -3185,7 +3227,7 @@
 
 // Exposed for tests/screenshot tooling only.
   window.AANGAN = { kindnessScan: kindnessScan, softenText: softenText, reset: function () { localStorage.removeItem(STORE_KEY); },
-    syncModerator: syncModerator, V: V, isRealMode: isRealMode, cleanCity: cleanCity, saveCity: saveCity,
+    syncModerator: syncModerator, V: V, postType: postType, isRealMode: isRealMode, cleanCity: cleanCity, saveCity: saveCity,
     cleanNick: cleanNick, saveNickname: saveNickname, nickname: function () { return store.profile.nickname; },
     inAppBrowser: inAppBrowser, isWebviewAuthError: isWebviewAuthError, appLink: appLink, chromeIntentUrl: chromeIntentUrl,
     showSignInBlocked: showSignInBlocked, signInFailMessage: signInFailMessage, handleSignInError: handleSignInError,

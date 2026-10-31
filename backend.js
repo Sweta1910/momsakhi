@@ -80,7 +80,7 @@
   // could link "Anonymous mom" posts to the same account's named posts. Who wrote
   // it lives only in the moderator-only /postAuthors record (see authorRecord and
   // firestore.rules). Named posts keep uid, as before. `ts` is serverTimestamp().
-  function postPayload(uid, authorName, isAnon, circle, title, body, meta, hue, intent, ts) {
+  function postPayload(uid, authorName, isAnon, circle, title, body, meta, hue, intent, ts, photo) {
     var anon = !!isAnon;
     var data = {
       author: anon ? null : str(authorName, "Mom"),
@@ -94,7 +94,13 @@
       replyCount: 0
     };
     if (!anon) data.uid = uid;
-    if (intent === "vent" || intent === "advice") data.intent = intent;
+    // Post type: "advice" is a Question, "vent" a Vent, "experience" an Experience
+    // (shown in the Moms' tips feed). No intent = an untyped post, read as a Question.
+    if (intent === "vent" || intent === "advice" || intent === "experience") data.intent = intent;
+    // 2026-10-31 fix: an attached photo was never written (it only lived on the
+    // optimistic local copy, so it vanished on the next snapshot). It now rides
+    // on the post as a downscaled JPEG data URL (app.js PHOTO_MAX; rules check it).
+    if (typeof photo === "string" && photo.indexOf("data:image/jpeg;base64,") === 0) data.photo = photo;
     return data;
   }
   function replyPayload(uid, authorName, isAnon, body, hue, ts) {
@@ -189,8 +195,8 @@
       // uid-free post AND /postAuthors/{postId} {uid}; rules accept each half only
       // alongside the other, so an anon post always has a (private) author record
       // and nobody can claim someone else's post. Resolves with the post's ref.
-      Backend.addPost = function(uid, authorName, isAnon, circle, title, body, meta, hue, intent) {
-        var data = postPayload(uid, authorName, isAnon, circle, title, body, meta, hue, intent, serverTimestamp());
+      Backend.addPost = function(uid, authorName, isAnon, circle, title, body, meta, hue, intent, photo) {
+        var data = postPayload(uid, authorName, isAnon, circle, title, body, meta, hue, intent, serverTimestamp(), photo);
         if (!data.anon) return addDoc(collection(db, "posts"), data);
         var postRef = doc(collection(db, "posts"));
         var batch = writeBatch(db);
