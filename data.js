@@ -27,16 +27,20 @@ window.AANGAN_DATA = {
     { "id": "helpful", "emoji": "💡", "label": "Helpful" }
   ],
   "circles": [
+    { "id": "newborn", "name": "Newborn & baby (0-1)", "emoji": "👶", "desc": "Feeds, naps, firsts and the fog of year one", "members": 433 },
+    { "id": "toddlers", "name": "Toddlers", "emoji": "🧸", "desc": "Tantrums, sleep, food, language", "members": 455 },
+    { "id": "schools", "name": "Daycare & schools", "emoji": "🎒", "desc": "MVWSD · Sunnyvale SD · preschools", "members": 298 },
+    { "id": "kids-food", "name": "Kids' food & picky eaters", "emoji": "🍲", "desc": "Starting solids, tiffin ideas, the great veggie standoff", "members": 352 },
+    { "id": "sleep", "name": "Sleep", "emoji": "😴", "desc": "Night wakings, naps, routines that actually stuck", "members": 407 },
+    { "id": "kids-health", "name": "Kids' health", "emoji": "🩺", "desc": "Fevers, vaccines, pediatrician visits (not medical advice)", "members": 296 },
     { "id": "new-us", "name": "New to the US", "emoji": "✈️", "desc": "First winters, SSNs, finding your people", "members": 412 },
     { "id": "h4", "name": "H4 & visa life", "emoji": "🛂", "desc": "EAD waits, identity, careers on pause", "members": 318 },
     { "id": "parents", "name": "Parents visiting from India", "emoji": "👵🏽", "desc": "Visas, insurance, keeping everyone happy", "members": 276 },
     { "id": "pregnancy", "name": "Pregnancy & postpartum", "emoji": "🤰🏽", "desc": "From the first scan to the fourth trimester", "members": 389 },
-    { "id": "toddlers", "name": "Toddlers", "emoji": "🧸", "desc": "Tantrums, sleep, food, language", "members": 455 },
     { "id": "working", "name": "Working moms", "emoji": "💼", "desc": "Pumping, leave, guilt, juggling", "members": 367 },
-    { "id": "schools", "name": "Daycare & schools", "emoji": "🎒", "desc": "MVWSD · Sunnyvale SD · preschools", "members": 298 },
     { "id": "food", "name": "Desi food & groceries", "emoji": "🍛", "desc": "Recipes, tiffins, where to find methi", "members": 501 },
     { "id": "me-time", "name": "Mental health & me-time", "emoji": "🌿", "desc": "You matter too", "members": 340 },
-    { "id": "postpartum-feelings", "name": "Postpartum feelings", "emoji": "🤍", "desc": "Hard days, heavy thoughts, small wins. Anonymous by default.", "members": 128 }
+    { "id": "postpartum-feelings", "name": "Postpartum feelings", "emoji": "🤍", "desc": "Hard days, heavy thoughts, small wins. Posting anonymously is one tap away.", "members": 128 }
   ],
   "posts": [
     {
