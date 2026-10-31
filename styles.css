@@ -20,8 +20,8 @@
     justify-content: space-around;
     width: 100%;
   }
-  .right-rail { display: none; }
 }
+@media (max-width: 1199px) { .right-rail { display: none; } }
 
 /* ---------- Top bars ---------- *//* MomSakhi prototype — design system + components.
    Palette: warm cream paper, marigold + terracotta warmth, deep teal for primary
@@ -576,6 +576,7 @@ textarea.input { min-height: 140px; resize: none; line-height: 1.55; }
     margin: 0 auto;
     width: 100%;
     grid-row: 2;
+    min-height: 0; /* lets the 1fr row cap it so the feed scrolls */
     grid-column: 1;
     /* Optional: box-shadow or border to delineate it, but let's keep it clean */
     border-left: 1px solid var(--line);

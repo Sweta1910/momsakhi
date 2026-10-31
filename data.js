@@ -40,7 +40,7 @@ window.AANGAN_DATA = {
     { "id": "working", "name": "Working moms", "emoji": "💼", "desc": "Pumping, leave, guilt, juggling", "members": 367 },
     { "id": "food", "name": "Desi food & groceries", "emoji": "🍛", "desc": "Recipes, tiffins, where to find methi", "members": 501 },
     { "id": "me-time", "name": "Mental health & me-time", "emoji": "🌿", "desc": "You matter too", "members": 340 },
-    { "id": "postpartum-feelings", "name": "Postpartum feelings", "emoji": "🤍", "desc": "Hard days, heavy thoughts, small wins. Posting anonymously is one tap away.", "members": 128 }
+    { "id": "postpartum-feelings", "name": "Postpartum feelings", "emoji": "🤍", "desc": "Hard days, heavy thoughts, small wins. Anonymous by default.", "members": 128 }
   ],
   "posts": [
     {

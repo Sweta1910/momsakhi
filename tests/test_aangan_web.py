@@ -2404,7 +2404,7 @@ console.log('OK');
 class TestPostTypesTipsKidCirclesAnon(unittest.TestCase):
     """2026-10-31: Question / Vent / Experience post types (stored as intent
     advice / vent / experience), the signed-in "Moms' tips" feed, a share button
-    on Experience posts, kid circles first, and anonymous OFF by default."""
+    on Experience posts, kid circles first, and posts anonymous by default (replies named)."""
 
     @classmethod
     def setUpClass(cls):
@@ -2475,16 +2475,16 @@ const t = A.V.tips().html;
 ok(t.includes('post-x1') && !t.includes('post-q1') && !t.includes('post-v1') && !t.includes('post-u1'), 'tips = Experience only');
 // Circles row: kid circles first.
 ok(h.indexOf('Newborn &amp; baby') < h.indexOf('New to the US'), 'kid circles not first');
-// Anonymous OFF by default for posts and replies, opt-in per post / reply.
+// Posts start anonymous (opt-out per post); replies start named (opt-in per reply).
 const F = boot({ onboarded: true, city: 'Pune' });
 const ask = F.V.ask().html;
-ok(ask.includes('Posting as <b>') && !ask.includes('Posting as <b>Anonymous mom'), 'ask must start named: ' + ask);
+ok(ask.includes('Posting as <b>Anonymous mom'), 'ask must start anonymous: ' + ask);
 ok(ask.includes('data-val="experience"') && ask.includes('data-val="advice"') && ask.includes('data-val="vent"'), 'type picker');
 const q = F.V.q('p1').html;
 ok(q.includes('Reply as ') && !q.includes('Reply anonymously<'), 'reply must start named');
-// An older profile saved with the old default (anonDefault: true) also starts named.
-const O = boot({ onboarded: true, city: 'Pune', profile: { nickname: 'old', anonDefault: true, stages: [], langs: [] } });
-ok(!O.V.ask().html.includes('Posting as <b>Anonymous mom'), 'old anonDefault must not carry over');
+// Switched off in Settings: posts start named.
+const O = boot({ onboarded: true, city: 'Pune', profile: { nickname: 'old', anonByDefault: false, stages: [], langs: [] } });
+ok(!O.V.ask().html.includes('Posting as <b>Anonymous mom'), 'opt-out must start named');
 // Existing anonymous posts still render as Anonymous mom.
 ok(t.includes('Anonymous mom'), 'existing anon post lost anonymity');
 console.log('OK');

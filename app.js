@@ -30,7 +30,7 @@
       // Free-text city, optional ("" = not set). Only the meetup features (Meetups
       // tab + Nearby moms) need it; everything else works without. See cityGate().
       city: "",
-      profile: { nickname: D.me.nickname, fullName: "", email: "", anonByDefault: false, stages: ["Toddler"], langs: ["English", "Hindi"] },
+      profile: { nickname: D.me.nickname, fullName: "", email: "", anonByDefault: true, stages: ["Toddler"], langs: ["English", "Hindi"] },
       verify: { phone: false, google: false },
       authMethod: null,
       nearbyOn: false,
@@ -227,11 +227,9 @@
     var rest = Object.assign({}, p); delete rest.city;
     store.profile = Object.assign(store.profile || {}, rest);
   }
-  // 2026-10-31: "Post anonymously" starts OFF. The setting moved from anonDefault
-  // (born true, so saved as true on every older profile) to anonByDefault (born
-  // false); the old key is simply ignored. The same setting seeds the reply box, so
-  // replies also start named, with a per-reply switch. Anonymous posts and replies
-  // already shared stay anonymous (anon is stored on each doc).
+  // "Post anonymously" starts ON (anonByDefault born true), matching the
+  // anonymity the MomSakhi promotions promise; a mom can switch it off per post or
+  // in Settings. Replies always start named, with a per-reply switch to go anonymous.
   function profileDoc() { return Object.assign({}, store.profile, { city: store.city }); }
   // Saves locally always. In real mode it also writes Firestore, but only once
   // she has finished onboarding: a city-only profile doc written mid-onboarding
@@ -1134,7 +1132,7 @@
   V.q = function (id) {
     var p = post(id);
     if (!p) return V.home();
-    if (replyDraft.pid !== id) replyDraft = { pid: id, text: "", anon: store.profile.anonByDefault, nudge: null };
+    if (replyDraft.pid !== id) replyDraft = { pid: id, text: "", anon: false, nudge: null };
     var c = p.circle ? circle(p.circle) : null;
     var ans = answersFor(p).slice().sort(function (a, b) { return (b.expert ? 1 : 0) - (a.expert ? 1 : 0); });
     var list = ans.map(function (a) {
