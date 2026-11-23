@@ -344,6 +344,7 @@
     check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     flag: '<path d="M5.5 21V4.5m0 0h11l-2.2 4 2.2 4h-11"/>',
     block: '<circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     eyeoff: '<path d="M3 3l18 18M10.6 6.1c.5-.1.9-.1 1.4-.1 5 0 8.5 4.5 9.5 6-.5.8-1.6 2.3-3.2 3.6M6.6 6.6C4.6 7.9 3.1 9.9 2.5 12c1 1.5 4.5 6 9.5 6 1.6 0 3-.4 4.3-1.1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
     phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
     camera: '<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2L9 5h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.5"/>',
@@ -2473,6 +2474,9 @@
         if (canEdit) {
           items += '<button class="sheet-item" data-act="post-edit" data-id="' + id + '">' + icon("edit") + "<span>Edit post<small>Make changes to " + (isMine ? "your" : "this") + " post</small></span></button>";
         }
+        if (canEdit) {
+          items += '<button class="sheet-item danger" data-act="post-delete" data-id="' + id + '" data-mine="' + (isMine ? "1" : "") + '">' + icon("trash") + "<span>Delete post<small>Remove " + (isMine ? "your" : "this") + " post for good</small></span></button>";
+        }
         if (!isMine) {
           items += '<button class="sheet-item" data-act="report-start" data-label="this post">' + icon("flag") + "<span>Report this post<small>Unkind, unsafe, spam or not from a mom</small></span></button>";
           items += '<button class="sheet-item" data-act="hide-post" data-id="' + id + '">' + icon("eyeoff") + "<span>Hide this post<small>You won't see it again</small></span></button>";
@@ -2629,6 +2633,26 @@
         store.reports.unshift({ id: "r" + Date.now(), postId: document.getElementById("sheet").getAttribute("data-pid") || "unknown",
           reason: (el.textContent || "reported").trim(), createdAt: Date.now() });
         save(); closeSheet(); toast("Thanks — a moderator will review within 24h"); break;
+      case "post-delete": {
+        if (!window.confirm("Delete this post? This can't be undone.")) break;
+        var dpid = el.getAttribute("data-id");
+        var dB = window.Backend;
+        if (isRealMode()) {
+          busy(el);
+          // Moderators cascade (replies + reports); an author can only delete her own post
+          // (rules stop her deleting other moms' replies or reading reports).
+          var dp = modState.isMod ? dB.removePost(dpid) : dB.deletePost(dpid, !!(post(dpid) && post(dpid).anon));
+          dp.then(function () {
+            if (dB.posts) dB.posts = dB.posts.filter(function (p) { return p.id !== dpid; });
+            closeSheet(); go("#home"); rerender(); toast("Post deleted");
+          }).catch(failToast("delete the post", el));
+          break;
+        }
+        store.posts = store.posts.filter(function (p) { return p.id !== dpid; });
+        if (store.hidden.indexOf(dpid) < 0) store.hidden.push(dpid);
+        store.reports = (store.reports || []).filter(function (r) { return r.postId !== dpid; });
+        save(); closeSheet(); go("#home"); toast("Post deleted"); break;
+      }
       case "mod-remove": {
         var rpid = el.getAttribute("data-pid");
         if (!window.confirm("Remove this post for everyone? Its replies and reports will be deleted too.")) break;

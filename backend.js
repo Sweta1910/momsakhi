@@ -38,6 +38,7 @@
     deleteReport: null,
     getPost: null,
     removePost: null,
+    deletePost: null,
     setReaction: null,
     listenMyReactions: null,
     addFeedback: null,
@@ -341,6 +342,16 @@
           if (res[0].exists()) batch.delete(postRef);
           return batch.commit();
         });
+      };
+
+      // Author "Delete post": her own post (and, if anonymous, her private author
+      // record) in one batch. Other moms' replies stay orphaned: rules only let a
+      // moderator delete those, and the feed reads posts so they are never shown.
+      Backend.deletePost = function(postId, anon) {
+        var batch = writeBatch(db);
+        batch.delete(doc(db, "posts", postId));
+        if (anon) batch.delete(doc(db, "postAuthors", postId));
+        return batch.commit();
       };
 
       // ---- Reactions (see the long comment in firestore.rules). One batch writes
