@@ -296,7 +296,7 @@ textarea.input { min-height: 140px; resize: none; line-height: 1.55; }
 .post-head .who b { font-size: 14px; display: flex; align-items: center; gap: 6px; }
 .post-head .who > span { font-size: 12px; color: var(--ink-3); }
 .post h3 { font-family: var(--font-body); font-weight: 700; font-size: 16px; line-height: 1.35; margin-top: 12px; letter-spacing: -.005em; }
-.post .body { margin-top: 6px; color: #4A3B34; font-size: 14.5px; }
+.post .body { margin-top: 6px; color: #4A3B34; font-size: 14.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .post .clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .post-foot { display: flex; align-items: center; gap: 6px; margin-top: 14px; flex-wrap: wrap; }
 .react {
@@ -367,7 +367,7 @@ textarea.input { min-height: 140px; resize: none; line-height: 1.55; }
 .answer.expert { background: linear-gradient(180deg, #F3FAF8, #fff); border-color: #CFE4DF; }
 .expert-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 6px; border-radius: 999px; background: var(--teal); color: #fff; font-size: 11px; font-weight: 700; }
 .expert-badge svg { width: 12px; height: 12px; }
-.answer .body { margin-top: 8px; font-size: 14.5px; color: #43352F; }
+.answer .body { margin-top: 8px; font-size: 14.5px; color: #43352F; white-space: pre-wrap; overflow-wrap: anywhere; }
 .answers { padding: 0 14px; }
 .reply-box { position: sticky; bottom: 0; padding: 10px 14px 14px; background: linear-gradient(rgba(255, 247, 238, 0), var(--cream) 30%); }
 .reply-inner { display: flex; gap: 8px; align-items: flex-end; padding: 8px 8px 8px 14px; border-radius: 24px; background: #fff; box-shadow: var(--shadow-2); }
