@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.momsakhi.app",
+    "sha256_cert_fingerprints": ["7A:6A:A6:28:B8:F4:EE:8B:AC:18:A5:04:FB:15:54:6A:84:83:D2:5F:2E:77:68:6D:F7:89:ED:50:23:24:C5:A6"]
+  }
+}]
