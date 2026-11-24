@@ -1065,6 +1065,15 @@
           ? emptyState("⭐", "No saved posts yet", "Tap the bookmark icon on any post to save it here for later.")
           : homeSeg === "tips" ? emptyState("🌱", "No tips yet", "Been through something? Share what worked for you as an Experience post.")
           : '<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">Be the first to share. You\'re not alone.</div>'));
+    // Waiting strip: up to 3 real posts with 0 replies, older than 6h, newest first.
+    var waiting = isLoading || !window.Backend || !window.Backend.isReal ? [] : all.filter(function (p) {
+      var t = p.createdAt && (typeof p.createdAt.toDate === "function" ? p.createdAt.toDate().getTime() : (p.createdAt.seconds ? p.createdAt.seconds * 1000 : 0));
+      return t && (p.replyCount || 0) === 0 && Date.now() - t > 6 * 3600000;
+    }).sort(function (a, b) { return b.createdAt.seconds - a.createdAt.seconds; }).slice(0, 3);
+    var waitingHtml = waiting.length ? '<div class="section waiting-strip" style="padding:0 18px;margin-top:10px"><div class="section-head" style="padding:0"><h2>These moms are waiting for a reply</h2></div>' +
+      waiting.map(function (p) {
+        return '<button class="card" data-act="waiting-open" data-id="' + esc(p.id) + '" style="display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;padding:10px 12px;margin-top:6px;background:var(--marigold-soft);border:0;font:inherit;color:inherit"><span>' + esc(p.title || p.body || "") + '</span><span class="tiny">' + esc(p.time) + "</span></button>";
+      }).join("") + "</div>" : "";
     var countStr = isLoading ? "..." : feedPosts.length + " posts";
     var segs = '<div class="seg" role="tablist" style="margin:10px 18px 0;max-width:100%;"><button data-act="home-seg" data-v="all" aria-pressed="' + (homeSeg === "all") + '">Fresh today</button><button data-act="home-seg" data-v="tips" aria-pressed="' + (homeSeg === "tips") + '">🌱 Moms\' tips</button><button data-act="home-seg" data-v="saved" aria-pressed="' + (homeSeg === "saved") + '">⭐ Saved (' + savedCount + ')</button></div>' +
       (homeSeg === "all" ? '<div class="chips" id="type-filter" style="margin:10px 18px 0">' + [["all", "All"], ["question", "❓ Questions"], ["vent", "🫂 Vents"]].map(function (t) {
@@ -1076,7 +1085,7 @@
       '<div class="section" style="padding:0;margin-top:14px"><div class="section-head" style="padding:0 18px"><h2>Your circles</h2><span class="muted">Swipe →</span></div>' +
       '<div class="circles-row">' + circles + "</div></div>" +
       '<div class="kind-banner"><span class="kb-i">💛</span><div><b>A kind space, always</b><span>Supportive reactions only — no downvotes, no shaming.</span></div></div>' +
-      segs +
+      waitingHtml + segs +
       '<div class="section-head" style="padding:0 18px;margin-top:10px;"><h2>' + (homeSeg === "saved" ? "Saved posts" : homeSeg === "tips" ? "Moms' tips" : "Fresh today") + '</h2><span class="muted">' + countStr + '</span></div>' +
       '<div class="feed">' + feedHtml + "</div></div>" };
   };
@@ -2749,6 +2758,7 @@
         rerender();
         break;
       }
+      case "waiting-open": go("#q/" + el.getAttribute("data-id")); setTimeout(function () { var r = $("#reply-text"); if (r) r.focus(); }, 150); break;
       case "home-seg": homeSeg = el.getAttribute("data-v"); rerender(); break;
       case "home-type": homeType = el.getAttribute("data-v"); rerender(); break;
       case "share-post": {
