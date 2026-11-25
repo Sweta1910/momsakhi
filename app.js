@@ -379,43 +379,60 @@
   }
   var PHOTO_MAX = 300000;
   function handlePhotoSelect(file) {
-    if (!file || !file.type.match(/^image\//)) return;
-    var reader = new FileReader();
-    reader.onload = function (e) {
-      var img = new Image();
-      img.onload = function () {
+    if (!file) return;
+    // Phones sometimes report an empty or heic type; decide by type OR file name,
+    // and always tell the mom when a photo cannot be used (never fail silently).
+    var okType = /^image\//.test(file.type || "") || /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(file.name || "");
+    if (!okType) { toast("Please choose a photo (JPG or PNG)"); return; }
+    var bad = function () { toast("Couldn't read that photo. Please try a JPG or PNG"); };
+    var objUrl = (window.URL && URL.createObjectURL) ? URL.createObjectURL(file) : null;
+    var done = function () { if (objUrl && URL.revokeObjectURL) URL.revokeObjectURL(objUrl); };
+    var useImage = function (img) {
+      try {
         var canvas = document.createElement("canvas");
         var ctx = canvas.getContext("2d");
         var maxDim = 1200;
-        var width = img.width;
-        var height = img.height;
+        var width = img.naturalWidth || img.width;
+        var height = img.naturalHeight || img.height;
+        if (!width || !height) { bad(); return; }
         if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
+          if (width > height) { height = Math.round((height * maxDim) / width); width = maxDim; }
+          else { width = Math.round((width * maxDim) / height); height = maxDim; }
         }
-        // 2026-10-31: the photo is saved ON the post doc (no Storage bucket), so
-        // shrink until it fits PHOTO_MAX; firestore.rules caps it at the same size.
-        var dataUrl, q = 0.78;
-        for (var tries = 0; tries < 8; tries++) {
+        // The photo is saved ON the post doc (no Storage bucket), so shrink until
+        // it fits PHOTO_MAX; firestore.rules caps it at the same size.
+        var dataUrl = "", q = 0.78;
+        for (var tries = 0; tries < 12; tries++) {
           canvas.width = width;
           canvas.height = height;
+          ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, width, height); // PNG transparency -> white, not black
           ctx.drawImage(img, 0, 0, width, height);
           dataUrl = canvas.toDataURL("image/jpeg", q);
+          if (dataUrl.indexOf("data:image/jpeg;base64,") !== 0) { bad(); return; }
           if (dataUrl.length <= PHOTO_MAX) break;
-          width = Math.round(width * 0.8); height = Math.round(height * 0.8); q = Math.max(0.5, q - 0.06);
+          width = Math.max(1, Math.round(width * 0.8)); height = Math.max(1, Math.round(height * 0.8)); q = Math.max(0.5, q - 0.06);
         }
         if (dataUrl.length > PHOTO_MAX) { toast("That photo is too big, please try another"); return; }
         askDraft.photo = dataUrl;
         rerender();
-      };
-      img.src = e.target.result;
+      } catch (err) { bad(); } finally { done(); }
     };
-    reader.readAsDataURL(file);
+    var viaReader = function () {
+      var reader = new FileReader();
+      reader.onerror = bad;
+      reader.onload = function (e) {
+        var img = new Image();
+        img.onload = function () { useImage(img); };
+        img.onerror = bad;
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    };
+    // createImageBitmap honours EXIF orientation and decodes big camera photos
+    // off-thread; fall back to <img> where it is missing or refuses the file.
+    if (window.createImageBitmap) {
+      window.createImageBitmap(file).then(function (bm) { useImage(bm); }, viaReader);
+    } else viaReader();
   }
   function openCreateMeetupSheet() {
     var circleOptions = (D.circles || []).map(function (c) {
