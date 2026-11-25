@@ -17,7 +17,7 @@
  * the new worker; skipWaiting + clients.claim make it take over immediately
  * and old shell caches are deleted on activate.
  */
-var VERSION = "e5a7b31";
+var VERSION = "iabup01";
 var CACHE = "momsakhi-shell-" + VERSION;
 var SHELL = [
   "./",

@@ -789,17 +789,37 @@
   }
   // Android: hand the page to Chrome. e.g.
   // intent://momsakhi.com/#Intent;scheme=https;package=com.android.chrome;end
-  function chromeIntentUrl(loc) {
-    return "intent://" + loc.host + loc.pathname + (loc.search || "") +
-      "#Intent;scheme=" + String(loc.protocol || "https:").replace(":", "") + ";package=com.android.chrome;end";
+  // `thread` (optional, a validReturn() #q/<id>) is kept: Android's Intent.parseUri
+  // splits at the LAST "#Intent;", so "...#q/<id>#Intent;..." keeps #q/<id> as the
+  // target URL's fragment. S.browser_fallback_url (documented) carries the full
+  // link, thread included, for when Chrome is not installed. Both are safe
+  // because validReturn() only allows [#A-Za-z0-9_/-].
+  function chromeIntentUrl(loc, thread) {
+    var scheme = String(loc.protocol || "https:").replace(":", "");
+    var t = validReturn(thread) ? thread : "";
+    var full = scheme + "://" + loc.host + loc.pathname + (loc.search || "") + t;
+    return "intent://" + loc.host + loc.pathname + (loc.search || "") + t +
+      "#Intent;scheme=" + scheme + ";package=com.android.chrome;S.browser_fallback_url=" +
+      encodeURIComponent(full) + ";end";
+  }
+  // The thread to keep: the current #q/<id>, else the one invite-return remembered.
+  function threadHash() {
+    var h = (window.location.hash || "");
+    return validReturn(h) ? h : peekReturn();
+  }
+  // Warn up front only for a browser that NAMES an app (Instagram, Facebook...).
+  // Generic "; wv)" stays as before: card only after a failed sign-in.
+  function namedInApp(ua) {
+    var iab = inAppBrowser(ua);
+    return !!(iab && iab.name);
   }
   function inAppCard() {
-    if (!signInBlocked) return "";
     var ua = nav().userAgent || "";
+    if (!signInBlocked && !namedInApp(ua)) return "";
     var iab = inAppBrowser(ua);
     var os = iab ? iab.os : (/Android/.test(ua) ? "android" : isIOS(ua) ? "ios" : "other");
     var where = iab && iab.name ? esc(iab.name) + "'s" : "this app's";
-    var loc = window.location, link = appLink(loc);
+    var loc = window.location, thread = threadHash(), link = appLink(loc) + thread;
     var step = os === "ios" ? "Tap <b>⋯</b> (top right), then <b>Open in Safari</b>."
       : os === "android" ? "Tap <b>Open in Chrome</b> below, or <b>⋮</b> then <b>Open in browser</b>."
       : "Copy the link and open it in Chrome or Safari.";
@@ -809,7 +829,7 @@
       '<span class="iab-step">' + step + "</span>" +
       '<input class="input iab-link" id="iab-link" readonly value="' + esc(link) + '" aria-label="' + esc(BRAND.name) + ' link">' +
       '<div class="iab-actions"><button class="btn btn-primary btn-sm" data-act="copy-app-link" id="iab-copy">Copy link</button>' +
-      (os === "android" ? '<a class="btn btn-ghost btn-sm" id="iab-chrome" href="' + esc(chromeIntentUrl(loc)) + '">Open in Chrome</a>' : "") +
+      (os === "android" ? '<a class="btn btn-ghost btn-sm" id="iab-chrome" href="' + esc(chromeIntentUrl(loc, thread)) + '">Open in Chrome</a>' : "") +
       "</div></div>";
   }
   function showSignInBlocked() {
@@ -2217,7 +2237,7 @@
         signInWithGoogle(undefined, el); break;
       }
       case "copy-app-link": {
-        var appUrl = appLink(location);
+        var appUrl = appLink(location) + threadHash();
         var copied = function () { toast("Link copied ✓ Paste it in Chrome or Safari"); };
         var selectCopy = function () {
           var inp = $("#iab-link"), okCopy = false;
