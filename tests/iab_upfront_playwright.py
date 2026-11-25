@@ -58,7 +58,10 @@ def load(browser, base, ua):
     ctx.route("**/backend.js*", lambda r: r.fulfill(body=STUB, content_type="text/javascript"))
     page = ctx.new_page()
     page.goto(base + "/#q/" + QID)
-    page.wait_for_selector("#google-signin")
+    try:
+        page.wait_for_selector("#google-signin", timeout=4000)
+    except Exception:  # noqa: BLE001 - e.g. main routes #q/ elsewhere; asserts below fail cleanly
+        pass
     page.wait_for_timeout(300)
     return ctx, page
 
