@@ -854,7 +854,7 @@
     return { tab: null, html:
       '<div class="welcome view">' +
       '<div class="toran" aria-hidden="true"></div>' + mandala() +
-      '<div class="welcome-hero">' + welcomeInvite() +
+      '<div class="welcome-hero">' + welcomeInvite() + returnNote() +
       '<div class="logo">' + logoMark() + '<span class="logo-word" style="font-size:28px">' + esc(BRAND.name) + "</span></div>" +
       "<h1>" + esc(BRAND.tagline).replace("sakhi", "<em>sakhi</em>") + "</h1>" +
       '<p class="sakhi-note"><b>Sakhi</b> (सखी) means a close friend — no judgement, just moms.</p>' +
@@ -884,6 +884,11 @@
   // Signed-out mom who arrived via an invite link: tell her the code is waiting.
   // 2026-10-14 open beta: no code is needed any more, so no banner (an old
   // ?invite= link just opens the welcome screen like any other visit).
+  function returnNote() {
+    if (!isRealMode() || !peekReturn()) return "";
+    return '<div class="card invite-banner" id="welcome-return" role="status"><span aria-hidden="true">\ud83d\udc8c</span><div><b>Sign in to read and reply to this mom\u2019s question</b>' +
+      "<span>We\u2019ll bring you right back to it.</span></div></div>";
+  }
   function welcomeInvite() {
     var code = pendingInvite();
     if (!isRealMode() || !code || !gateOn()) return "";
@@ -1746,6 +1751,10 @@
         try { history.replaceState(null, "", "#" + r.name); } catch (_) { location.hash = "#" + r.name; }
       }
     }
+    if (r.name === "q" && isRealMode() && window.Backend && !window.Backend.user) {
+      rememberReturn("#q/" + encodeURIComponent(r.arg || ""));
+      r = { name: "welcome", arg: null };
+    }
     var view = V[r.name] || V.home;
     var out = view(r.arg);
     var screen = $("#screen");
@@ -1813,6 +1822,35 @@
 
     if (out.after) out.after();
   }
+  // 2026-11-24 invite-return: a mom invited to one thread (#q/<id>) who has to
+  // sign in / onboard first lands on that thread afterwards, not on #home. Only a
+  // plausible #q/<id> hash is ever stored (never a URL), in sessionStorage AND
+  // localStorage (a sign-in redirect reloads the page), and it expires after 24h.
+  var RETURN_KEY = "momsakhi_return_to", RETURN_TTL = 24 * 3600 * 1000;
+  function validReturn(h) { return typeof h === "string" && /^#q\/[A-Za-z0-9_-]{6,40}$/.test(h); }
+  function rememberReturn(h) {
+    if (!validReturn(h)) return;
+    var v = JSON.stringify({ h: h, t: Date.now() });
+    try { sessionStorage.setItem(RETURN_KEY, v); } catch (_) {}
+    try { localStorage.setItem(RETURN_KEY, v); } catch (_) {}
+  }
+  function peekReturn() {
+    var stores = [function () { return sessionStorage; }, function () { return localStorage; }];
+    for (var i = 0; i < stores.length; i++) {
+      try {
+        var o = JSON.parse(stores[i]().getItem(RETURN_KEY) || "null");
+        if (o && validReturn(o.h) && Date.now() - o.t < RETURN_TTL && o.t <= Date.now() + 60000) return o.h;
+      } catch (_) {}
+    }
+    return "";
+  }
+  function clearReturn() {
+    try { sessionStorage.removeItem(RETURN_KEY); } catch (_) {}
+    try { localStorage.removeItem(RETURN_KEY); } catch (_) {}
+  }
+  // Final landing after sign-in / onboarding: the remembered thread, else home.
+  function goHome() { var t = peekReturn(); clearReturn(); go(t || "#home"); }
+
   function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
 
   // ---------------------------------------------------------- sheet/toast
@@ -1937,7 +1975,7 @@
     store.onboarded = true;
     save();
     // Navigate straight to MomSakhi home page immediately with zero delay
-    go("#home");
+    go(peekReturn() || "#home");
     // 2026-10-14 open beta: accessFor() always resolves true, so she goes
     // straight to onboarding (new mom) or home (has a profile).
     return accessFor(u).then(function (ok) {
@@ -1955,7 +1993,7 @@
         save();
         var at = parseHash().name;
         if (at === "welcome" || !at) {
-          go("#home");
+          goHome();
         } else {
           render(true);
         }
@@ -1966,14 +2004,14 @@
         } else {
           store.onboarded = true;
           save();
-          go("#home");
+          goHome();
         }
       }
     }).catch(function (e) {
       failToast("load your profile", null)(e);
       var at = parseHash().name;
       if (at === "welcome" || !at) {
-        go("#home");
+        goHome();
       }
     });
   }
@@ -2071,7 +2109,7 @@
         if (sessionStorage.getItem("momsakhi_signing_in")) {
           store.onboarded = true;
           save();
-          go("#home");
+          go(peekReturn() || "#home");
         }
       };
       window.addEventListener("focus", checkFocus);
@@ -2320,11 +2358,11 @@
         if (window.Backend && window.Backend.isReal && window.Backend.user) {
            busy(el);
            window.Backend.saveProfile(window.Backend.user.uid, profileDoc()).then(function () {
-             go("#home"); toast("Welcome to the circle, " + store.profile.nickname + " 💛");
+             goHome(); toast("Welcome to the circle, " + store.profile.nickname + " 💛");
            }).catch(failToast("save your profile", el));
            break;
         }
-        go("#home"); toast("Welcome to the circle, " + store.profile.nickname + " 💛"); break;
+        goHome(); toast("Welcome to the circle, " + store.profile.nickname + " 💛"); break;
       case "react": {
         if (isRealMode()) { reactLive(el); break; }
         var key = el.getAttribute("data-key") + ":" + el.getAttribute("data-r");
@@ -3208,7 +3246,7 @@
             try { sessionStorage.removeItem("momsakhi_signing_in"); } catch (_) {}
             var curRoute = parseHash().name;
             if (curRoute === "welcome" && (store.onboarded || store.profile.city)) {
-              go("#home");
+              goHome();
             } else if (curRoute !== "welcome" && !cached) {
               render();  // "Checking your invite…"
             }
@@ -3223,12 +3261,13 @@
                   save();
                   var at = parseHash().name;
                   if (at === "welcome" || !at) {
-                    go("#home");
+                    goHome();
                     return;
                   }
                 } else {
                   var at2 = parseHash().name;
-                  if (at2 === "welcome" || !at2) {
+                  if (at2 === "q") rememberReturn(location.hash);
+                  if (at2 === "welcome" || at2 === "q" || !at2) {
                     go("#onboard/city");
                     return;
                   }
