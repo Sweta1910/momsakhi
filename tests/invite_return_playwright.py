@@ -69,6 +69,7 @@ def run_case(browser, base, existing):
             raise
         page.fill("#city-input", "Pune")
         page.click("[data-act=city-continue]")
+        page.wait_for_selector("#about-continue", timeout=5000)
         page.wait_for_function("!document.querySelector('#about-continue').disabled", timeout=5000)
         page.click("#about-continue")
         page.wait_for_selector("#enter-app", timeout=5000)
